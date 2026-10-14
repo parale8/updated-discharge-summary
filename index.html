@@ -373,6 +373,10 @@ ul.tgiven{margin:0 0 10px 18px;font-size:9.4pt;line-height:1.6}
 .edit-on .sheet{box-shadow:0 0 0 2px var(--teal-100),0 2px 12px rgba(15,23,42,.07)}
 .edit-on [data-edit]{outline:1px dashed #6fbdb3;outline-offset:2px;border-radius:3px;background:#f2fbfa;cursor:text;min-width:14px;display:inline-block}
 .edit-on [data-edit]:focus{outline:2px solid var(--teal-700);background:#fff}
+/* phones: tap a line to correct it in a proper text box */
+body.tapedit.edit-on .sheet [data-edit], body.tapedit.edit-on .sheet li, body.tapedit.edit-on .sheet td, body.tapedit.edit-on .sheet .b{cursor:pointer}
+.tapflash{animation:tapf 1.2s ease}
+@keyframes tapf{0%{background:#99f6e4}100%{background:transparent}}
 .edit-on .sheet:focus,.edit-on .sheet *:focus{outline-color:var(--teal-700)}
 .editnote{display:none;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:9px;padding:10px 14px;font-size:.84rem;color:var(--teal-900);margin-bottom:12px;font-weight:600;line-height:1.6}
 .edit-on .editnote{display:block}
@@ -515,6 +519,12 @@ html.pdf-rendering table.labmx td.nm .ref{white-space:normal}
 .cam .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .15s}
 .cam .flash.on{opacity:.75}
 .cam .hint{color:#cbd5e1;font-size:.78rem;text-align:center;padding:8px 12px 0}
+.rxchk{margin-top:4px;font-size:8.2pt;line-height:1.35;font-weight:500}
+.rxpaper{color:#475569;background:#f1f5f9;border-radius:4px;padding:2px 6px;margin-top:2px}
+.rxflag{color:#7c3d05;background:#fff4d6;border:1px solid #f5c76b;border-radius:4px;padding:3px 6px;margin-top:3px;font-weight:700}
+.rxflag.bad{color:#991b1b;background:#fee2e2;border-color:#fca5a5}
+.rxbanner{font-size:8.6pt;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:6px;padding:6px 9px;margin:0 0 6px;line-height:1.45}
+.rxbanner.warn{background:#fff7e6;border-color:#f5c76b;color:#7c3d05}
 .stalebar{display:none;align-items:center;gap:10px;flex-wrap:wrap;background:var(--warn-bg);border:1px solid var(--warn-br);color:#7c3d05;border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:.86rem;font-weight:600}
 .stalebar.on{display:flex}
 .stalebar .btn{padding:7px 13px;font-size:.84rem}
@@ -559,7 +569,7 @@ html.pdf-rendering table.labmx td.nm .ref{white-space:normal}
       <p>Photograph an old summary → get a clean, coded, patient-ready one</p>
     </div>
     <div class="spacer"></div>
-    <span class="ver">v2026-10-13</span>
+    <span class="ver">v2026-10-14</span>
   </div>
 </header>
 
@@ -670,6 +680,16 @@ html.pdf-rendering table.labmx td.nm .ref{white-space:normal}
 </div>
 
 <!-- ===== MODALS ===== -->
+<div class="modal" id="tapModal">
+  <div class="box">
+    <h3>✏️ Correct this text</h3>
+    <p id="tapWhere">Change the text and tap Save.</p>
+    <textarea id="tapText" rows="4" style="width:100%;font:inherit;font-size:1.05rem;padding:10px;border:1.5px solid var(--teal-700);border-radius:10px;margin-bottom:12px;resize:vertical" spellcheck="true" autocapitalize="sentences"></textarea>
+    <button class="btn btn-primary" id="tapSave" type="button">💾 Save</button>
+    <button class="btn btn-soft" id="tapCancel" type="button">Cancel</button>
+  </div>
+</div>
+
 <div class="modal" id="pickModal">
   <div class="box">
     <h3 id="pickTitle">Which page?</h3>
@@ -754,7 +774,7 @@ const KEY_POOL = ["b64:QUl6YVN5QkVHcXJWQzg5Z3pfSUdCU2JtUzB2OGZmTG94UDdaRnNB"];
 /* Preferred models, best first. The list actually used is discovered from Google
    for each key (see modelsFor), so a retired model name can never break the app.
    Google's daily quota is counted PER MODEL, so every extra model is extra daily capacity. */
-const MODELS_PREF = ['gemini-2.5-flash','gemini-flash-latest','gemini-2.5-flash-lite','gemini-flash-lite-latest','gemini-2.0-flash','gemini-2.0-flash-lite'];
+const MODELS_PREF = ['gemini-flash-latest','gemini-2.5-flash','gemini-2.5-pro','gemini-flash-lite-latest','gemini-2.5-flash-lite','gemini-2.0-flash','gemini-2.0-flash-lite'];
 const SPANDAN_LOGO = "data:image/png;base64,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";
 
 function dec(k){ if(!k) return ""; try{ if(k.startsWith("b64:")) return atob(k.slice(4)); }catch(e){} return k; }
@@ -1063,15 +1083,19 @@ function retryDelayOf(err){
   return 15000;
 }
 
-async function gemini(parts, sysText, maxTok, bg, c){
+let LAST_MODEL = '';
+async function gemini(parts, sysText, maxTok, bg, c, opts){
   if(c===undefined) c = CASE;
   if(!bg) _userBusy++;
   try{
-    return await queued(()=>geminiOnce(parts, sysText, maxTok, bg, c), bg, c);
+    return await queued(()=>geminiOnce(parts, sysText, maxTok, bg, c, opts||{}), bg, c);
   } finally { if(!bg) _userBusy--; }
 }
 
-async function geminiOnce(parts, sysText, maxTok, bg, c){
+/* Reading photographs needs the strongest model: "lite" models misread drug
+   names and dose columns, so they are used for photos only as a last resort. */
+const isLite = n => /lite/i.test(n);
+async function geminiOnce(parts, sysText, maxTok, bg, c, opts){
   const started = Date.now(), BUDGET = (bg?2:3)*60*1000;
   const fails = {};                     // transient failures per model, this request
   let lastErr='', sawDaily=false, sawRate=false, truncated=null;
@@ -1084,7 +1108,8 @@ async function geminiOnce(parts, sysText, maxTok, bg, c){
 
     for(const rawK of pool){
       if(BADKEY.has(rawK)) continue;
-      const models = await modelsFor(rawK);
+      let models = await modelsFor(rawK);
+      if(opts.quality) models = models.filter(m=>!isLite(m.name)).concat(models.filter(m=>isLite(m.name)));
       for(const m of models){
         const id = rawK+'|'+m.name;
         if(SPENT.has(id) || DEAD.has(id) || skip.has(id) || BADKEY.has(rawK)) continue;
@@ -1092,7 +1117,8 @@ async function geminiOnce(parts, sysText, maxTok, bg, c){
         tried = true;
         if(!isCurrent(c)) throw new Error('__stale__');
         const gen = { temperature:0, topP:0.9, maxOutputTokens:Math.min(maxTok||32768, m.outLimit||65536), responseMimeType:'application/json' };
-        if(!NOTHINK.has(m.name) && /2\.5/.test(m.name) && !/pro/.test(m.name)) gen.thinkingConfig = {thinkingBudget:0};
+        // thinking off for long writing (it eats the output budget), a little on for the prescription double-check
+        if(!NOTHINK.has(m.name) && /2\.5/.test(m.name) && !/pro/.test(m.name)) gen.thinkingConfig = {thinkingBudget: opts.think||0};
         let r, j, e;
         try{
           r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m.name+':generateContent?key='+encodeURIComponent(dec(rawK)),{
@@ -1114,6 +1140,7 @@ async function geminiOnce(parts, sysText, maxTok, bg, c){
           if(!txt){ lastErr = 'empty answer ('+(cand.finishReason||(j.promptFeedback||{}).blockReason||'no reason')+')'; skip.add(id); continue; }
           // a cut-off answer is still returned — parseJSON closes it and the caller re-asks for any missing half
           if(!bg) status('',false);
+          LAST_MODEL = m.name;
           return txt;
           if(!bg) status('',false);
           return txt;
@@ -1191,7 +1218,9 @@ ABSOLUTE RULES
 1. Transcribe values EXACTLY as printed. Never invent a value, date, drug or dose. If something is not on the paper, use "" (empty string) or omit the array entry — never guess.
 2. Dates: output as "DD-MMM-YYYY" (e.g. "27-Aug-2026"). If only a partial date is legible, give what is legible.
 3. ICD-10 codes: you MAY supply the correct ICD-10-CM code from your own medical knowledge for each diagnosis — this is coding, not clinical invention. If you are not confident, use "" for icd10.
-4. Generic names: for each drug that IS written on these pages, add its generic (INN) name if you know it with certainty; otherwise "". Never add a drug because it is common, typical for the diagnosis, or appeared in any other patient's record.
+4. BRAND NAMES ARE SACRED. "brand" is the drug name EXACTLY as printed — same spelling (even if it looks misspelt), same suffixes (XL, XR, SR, OD, CR, D, AM, H, Plus, Forte, Gold, AV), same order of words. Never correct it, never shorten it, never replace it with a generic or with a brand you expect. "generic": fill it ONLY if the generic name is itself printed on the paper next to that drug; otherwise "" (the app adds generics for brands it knows).
+4a. "brand", "strength" and "schedule" are copied character-for-character from the paper. "schedule" is the three dose digits exactly as printed, morning-afternoon-night (a line like "1 -------- 0 -------- 1" is "1-0-1"; "0 -------- 1 -------- 0" is "0-1-0"). Read each drug's own line across to its own digits — do not take the digits of the line above or below. "timing" (before/after food, bedtime) and "duration" ONLY if written on the paper; otherwise "".
+4c. Spelling: in diagnoses and clinical text, correct obvious misspellings of MEDICAL WORDS (e.g. "infract" → "infarct", "ssutained" → "sustained", "ischaemic" spelt wrongly) so the new summary reads correctly. NEVER "correct" a drug name, a number or a date.
 4b. PRESCRIPTION GROUNDING — THE MOST IMPORTANT RULE. List ONLY the medicines physically written in the discharge-advice / prescription section of THESE photographs, in the order written. For every medicine fill "asWritten" with the line copied exactly as it appears on the paper (brand, strength, schedule) and "page" with the page number. If you cannot point to the line on the paper, the medicine does not exist — leave it out. Do not "complete" a prescription with drugs usually given for the diagnosis. Do not carry over doses between drugs. If a dose or schedule is illegible, write "?" and add a note to "unreadable".
 5. Lab investigations repeated on more than one date MUST appear as ONE entry with several objects inside "results" — one object for EVERY date the test was performed, in chronological order. Do not drop a repeat because the value was unchanged or normal; every dated value printed on the paper must appear. Give the date on every result object. The same applies to imaging and special investigations: a study repeated on another date is a separate object in its array using the SAME "name", so they can be grouped date-wise.
 5b. DE-DUPLICATE THE DIAGNOSIS LIST. The old summary often strings everything into one run-on line joined by "with" and repeats the same condition in different words. Break that into distinct clinical entities and state each ONE time only:
@@ -1315,7 +1344,7 @@ ${want.patient?`
 "patient" — an explanation of this admission for the patient and family. No jargon; where a medical word is unavoidable, explain it in one short phrase.
 - "severity" stays one of the English words mild / moderate / severe and must match THIS record. "severityWord" is the ${L.label} word.
 - "testFindings": the 4-8 findings that matter to the patient; "tone" stays good / watch / serious.
-- "keyMedicines": EXACTLY the medicines in the discharge prescription above — no more, no fewer — each named as written there, with a one-line everyday reason. Never add a medicine that is not in that prescription.
+- "keyMedicines": EXACTLY the medicines in the discharge prescription above — no more, no fewer. "name" is the brand name EXACTLY as printed there, in English letters (so the family can match it to the strip), with its strength. "why" is a one-line everyday reason. Never add, rename or translate a medicine.
 - "warningSigns": specific and physical (e.g. chest pain that does not settle in 5 minutes, breathlessness on lying flat, weight gain of 2 kg in 3 days).
 `:''}${want.diet?`
 "diet" — a therapeutic diet and lifestyle prescription. EVERY patient gets one: the conditions (${como}) decide what is in it, never whether it exists. With no chronic disease, write a general Indian heart-healthy diet and say so in "basis". Use real Maharashtra / Solapur foods by their common names, with quantities.
@@ -1361,8 +1390,11 @@ function norm(s){
     .replace(/\s+/g,' ').trim();
 }
 const PROC_RE = /(ptca|pci|angioplasty|stent|stenting|cabg|bypass graft|pacemaker|icd implant|crt|valvotomy|valvuloplasty|tavi|tavr|ablation|device closure|implantation|surgery|operated|operation|status post|s\/p)/i;
+const DISEASE_RE = /(infarct|\bmi\b|stemi|nstemi|\bacs\b|angina|ischemi|ischaemi|failure|cardiomyopathy|tachycardia|bradycardia|fibrillation|flutter|block|disease|stenosis|regurgitation|diabet|hypertens|syndrome|shock|embolism|thrombosis|anaemia|anemia|nephropathy|ckd|aki|pneumonia|sepsis|stroke|dysfunction)/i;
 function isProcedureText(d){
   const t = (d.short||'')+' '+(d.full||'');
+  if(d.primary) return false;                                // the reason for this admission is never "status post"
+  if(DISEASE_RE.test(d.short||t)) return false;              // "MI with ... PTCA" is still an MI
   if(/^Z/i.test(String(d.icd10||'').trim())) return true;   // Z-codes = status/history, not an active diagnosis
   return PROC_RE.test(t);
 }
@@ -1579,12 +1611,29 @@ function cardList(list, title, icon){
   return '<h4 class="sub">'+icon+' '+title+'</h4>'+cards;
 }
 
+/* screen-only: what the paper says, and anything the doctor must check */
+function rxCheckNote(m){
+  const f = arr(m._flags);
+  const paper = has(m.asWritten) ? '<div class="rxpaper">📄 On paper'+(m.page?' (p.'+esc(m.page)+')':'')+': <b>'+esc(m.asWritten)+'</b></div>' : '';
+  const warn = f.length ? '<div class="rxflag'+(m._suspect?' bad':'')+'">'+f.map(x=>'⚠ '+esc(x)).join('<br>')+'</div>' : '';
+  return (paper||warn) ? '<div class="rxchk noprint" contenteditable="false">'+paper+warn+'</div>' : '';
+}
+function rxBanner(d){
+  const list=arr(d.prescription), nf=list.filter(m=>arr(m._flags).length).length;
+  const lite = d._model && /lite/i.test(d._model);
+  const lines=[];
+  if(d._rxChecked) lines.push('✅ Prescription read twice and compared'+(nf?' — <b>'+nf+' line'+(nf>1?'s':'')+' need'+(nf>1?'':'s')+' your check</b> (yellow notes below).':' — both readings agree.'));
+  else lines.push('⚠ <b>The second reading of the prescription could not run.</b> Check every medicine against the paper.');
+  if(lite) lines.push('⚠ Google\'s daily allowance for the stronger models is used up, so a <b>lighter model ('+esc(d._model)+')</b> read these photos. Check everything carefully, or add your own key.');
+  lines.push('The 📄 lines show what the paper says. These notes are on screen only — never printed, never in the PDF or WhatsApp.');
+  return '<div class="rxbanner noprint'+(nf||lite||!d._rxChecked?' warn':'')+'" contenteditable="false">'+lines.join('<br>')+'</div>';
+}
 function rxTable(list, interactions){
   list = arr(list);
   if(!list.length) return '';
   const rows = list.map((m,i)=>`<tr>
     <td style="text-align:center;color:var(--slate-600);font-weight:700">${i+1}</td>
-    <td><span class="nm">${esc(has(m.form)?m.form+'. ':'')}${esc(m.brand||m.generic||'')}</span>${has(m.strength)?' <b>'+esc(m.strength)+'</b>':''}${has(m.generic)&&m.generic!==m.brand?'<span class="gen">('+esc(m.generic)+')</span>':''}</td>
+    <td><span class="nm">${esc(has(m.form)?m.form+'. ':'')}${esc(m.brand||m.generic||'')}</span>${has(m.strength)?' <b>'+esc(m.strength)+'</b>':''}${has(m.generic)&&m.generic!==m.brand?'<span class="gen">('+esc(m.generic)+')</span>':''}${rxCheckNote(m)}</td>
     <td class="dose">${E(m.schedule,'—')}</td>
     <td style="font-size:8.6pt">${esc(has(m.timing)?m.timing:'—')}</td>
     <td style="font-size:8.6pt">${esc(has(m.duration)?m.duration:'Continue')}</td>
@@ -1597,6 +1646,7 @@ function rxTable(list, interactions){
       + '<div class="iph">💊 Interaction check · on screen only — not printed, not in the PDF, not shared</div>'
       + '<div class="ipb">'+items+'</div></div>' : '';
   return `<h3 class="sect teal">℞ Discharge Prescription</h3>
+  ${DATA?rxBanner(DATA):''}
   <table class="t rx"><thead><tr><th style="width:6%">#</th><th style="width:40%">Drug (generic)</th><th style="width:16%;text-align:center">Morn–Aft–Night</th><th style="width:19%">Timing</th><th style="width:19%">Duration</th></tr></thead><tbody>${rows}</tbody></table>
   <div style="font-size:8.6pt;color:var(--crit);font-weight:700;margin-bottom:6px">⚠ Do not stop, change or add any medicine without the treating doctor's advice.</div>
   ${inter}`;
@@ -1981,7 +2031,7 @@ RULES
 - Keep every number, dose, date and measurement exactly as it is.
 - "severity" stays one of: mild, moderate, severe — do NOT translate that one value. Translate "severityWord".
 - "tone" stays one of: good, watch, serious — do NOT translate those values.
-- Medicine brand names stay recognisable; write them in the ${L.label} script the way a chemist's label would.
+- Medicine brand names stay EXACTLY as they are, in English letters — never translated, transliterated or respelt.
 - Write the way a person talks at home, not the way a textbook is written.
 `;
 }
@@ -2003,6 +2053,7 @@ ${text.slice(0,16000)}
 
 Rewrite it faithfully in simple everyday spoken ${L.label} (${L.name}), in the ${L.label} script, as JSON.
 - Carry over every correction, medicine, number, dose, quantity and instruction exactly. Add nothing that is not on the page; drop nothing that is.
+- Medicine brand names stay EXACTLY as written, in English letters — never translated or respelt.
 ${kind==='pt'?'- "severity" is one of the English words mild / moderate / severe as the page indicates; "tone" is good / watch / serious.\n':''}- Every key present; [] where the page has nothing for it.
 
 OUTPUT EXACTLY THIS JSON SHAPE:
@@ -2116,7 +2167,58 @@ function noteEdit(sheet){
       toast('<b>✏️ Edit saved.</b> The other languages will now be written from your corrected '+(LANGS[L]||{}).label+' page — when you switch language, print or share.',8000); }
   }
 }
+let TAP_EL = null;
+const TAP_SKIP = '.rowtool,.addrow,.langbar,.lpill,button,a,input,select,textarea,.noprint,.pending,.localnote,img';
+const TAP_BLOCK = 'div,ul,ol,table,tbody,thead,tr,li,p,h1,h2,h3,h4,h5,section';
+function tapTarget(t, sheet){
+  if(!t || t===sheet || t.closest(TAP_SKIP)) return null;
+  let el = t.closest('[data-edit]') || t;
+  // climb out of tiny inline wrappers (<b>, <i>) when the parent is a plain text line
+  if(!el || el===sheet) return null;
+  if(!el.matches('[data-edit]') && el.querySelector(TAP_BLOCK)) return null;   // a container, not a line of text
+  const txt = tapGetText(el);
+  if(!txt.trim() && !el.matches('[data-edit],td,li')) return null;
+  return el;
+}
+function tapGetText(el){
+  const c=el.cloneNode(true);
+  c.querySelectorAll('.rowtool,.noprint').forEach(n=>n.remove());
+  c.querySelectorAll('br').forEach(b=>b.replaceWith('\n'));
+  return c.textContent.replace(/[ \t]+\n/g,'\n').trim();
+}
+function tapSetText(el, txt){
+  const keep=[...el.querySelectorAll(':scope > .rowtool, :scope > .noprint')];
+  el.textContent='';
+  txt.split('\n').forEach((line,i)=>{ if(i) el.appendChild(document.createElement('br')); el.appendChild(document.createTextNode(line)); });
+  keep.forEach(k=>el.appendChild(k));
+}
+function openTapEdit(el){
+  TAP_EL = el;
+  const sec = el.closest('.dxblock') ? 'Diagnosis' : el.closest('table.rx') ? 'Prescription' : el.closest('#sheetPt') ? 'Patient page' : el.closest('#sheetDiet') ? 'Diet sheet' : 'Discharge summary';
+  $('tapWhere').textContent = sec+' — change the text and tap Save.';
+  const ta=$('tapText'); ta.value = tapGetText(el);
+  $('tapModal').classList.add('on');
+  setTimeout(()=>{ ta.focus(); try{ ta.setSelectionRange(ta.value.length, ta.value.length); }catch(e){} }, 60);
+}
 function wireEditTracking(){
+  $('tapSave').onclick = ()=>{
+    const el=TAP_EL; $('tapModal').classList.remove('on'); TAP_EL=null;
+    if(!el || !el.isConnected) return;
+    tapSetText(el, $('tapText').value);
+    el.classList.remove('tapflash'); void el.offsetWidth; el.classList.add('tapflash');
+    const sh=el.closest('.sheet'); if(sh) noteEdit(sh);
+  };
+  $('tapCancel').onclick = ()=>{ TAP_EL=null; $('tapModal').classList.remove('on'); };
+  ['sheetDoc','sheetPt','sheetDiet'].forEach(id=>{
+    const s=$(id);
+    s.addEventListener('click', e=>{
+      if(!editMode || !TAP_EDIT) return;
+      const el = tapTarget(e.target, s);
+      if(!el) return;
+      e.preventDefault();
+      openTapEdit(el);
+    });
+  });
   ['sheetDoc','sheetPt','sheetDiet'].forEach(id=>{
     const s=$(id);
     let t=null;
@@ -2271,9 +2373,15 @@ function signatureLite(U){
 /* ============================================================
    8.  EDIT MODE
    ============================================================ */
+/* Phones (touch screen, no mouse) edit through a text box — typing straight into
+   the page is unreliable with Android keyboards (Gboard autocorrect and word
+   suggestions fail inside nested editable boxes). Computers edit inline. */
+const TAP_EDIT = (typeof matchMedia!=='undefined') && matchMedia('(hover: none) and (pointer: coarse)').matches;
 function markEditable(root){
-  root.querySelectorAll('[data-edit]').forEach(el=>{ el.setAttribute('contenteditable', editMode?'true':'false'); });
-  root.setAttribute('contenteditable', editMode?'true':'false');
+  const inline = editMode && !TAP_EDIT;
+  document.body.classList.toggle('tapedit', TAP_EDIT);
+  root.querySelectorAll('[data-edit]').forEach(el=>{ el.setAttribute('contenteditable', inline?'true':'false'); });
+  root.setAttribute('contenteditable', inline?'true':'false');
   root.setAttribute('spellcheck','false');
 }
 
@@ -2295,17 +2403,29 @@ function tools(target, kind){
   const del=document.createElement('button'); del.className='del'; del.type='button'; del.title='Delete this row'; del.textContent='×';
   dup.onmousedown=e=>{e.preventDefault();};
   del.onmousedown=e=>{e.preventDefault();};
-  dup.onclick=e=>{ e.preventDefault(); e.stopPropagation(); const c=blankLike(target); target.after(c); wireTools(c.parentNode); };
-  del.onclick=e=>{ e.preventDefault(); e.stopPropagation(); if(confirm('Delete this '+(kind||'row')+'?')) target.remove(); };
+  dup.onclick=e=>{ e.preventDefault(); e.stopPropagation(); const c=blankLike(target); target.after(c); wireTools(c.parentNode); renumber(target.closest('.sheet')); };
+  del.onclick=e=>{ e.preventDefault(); e.stopPropagation(); if(confirm('Delete this '+(kind||'row')+'?')){ const sh=target.closest('.sheet'); target.remove(); renumber(sh); if(sh) noteEdit(sh); } };
   t.append(dup,del); return t;
+}
+/* keep # columns and diagnosis numbers in sequence after a row is added or deleted */
+function renumber(root){
+  (root||document).querySelectorAll('table.rx tbody').forEach(tb=>{
+    let n=0;
+    tb.querySelectorAll(':scope > tr').forEach(tr=>{
+      const c=tr.firstElementChild; if(!c) return; n++;
+      const t=[...c.childNodes].find(x=>x.nodeType===3 && x.nodeValue.trim()!=='') || [...c.childNodes].find(x=>x.nodeType===3);
+      if(t) t.nodeValue=String(n); else c.insertBefore(document.createTextNode(String(n)), c.firstChild);
+    });
+  });
+  (root||document).querySelectorAll('.dxblock .bd').forEach(bd=>{ let n=0; bd.querySelectorAll('.dxitem .dxnum').forEach(x=>x.textContent=String(++n)); });
 }
 function wireTools(scope){
   (scope||document).querySelectorAll('.rowtool').forEach(t=>{
     const row=t.closest('tr')||t.closest('.dxitem')||t.closest('li')||t.closest('.imgcard')||t.closest('.proc');
     if(!row) return;
     const btns=t.querySelectorAll('button');
-    btns[0].onclick=e=>{e.preventDefault();e.stopPropagation();const c=blankLike(row);row.after(c);wireTools(c.parentNode);};
-    btns[1].onclick=e=>{e.preventDefault();e.stopPropagation();if(confirm('Delete this row?'))row.remove();};
+    btns[0].onclick=e=>{e.preventDefault();e.stopPropagation();const c=blankLike(row);row.after(c);wireTools(c.parentNode);renumber(row.closest('.sheet'));};
+    btns[1].onclick=e=>{e.preventDefault();e.stopPropagation();if(confirm('Delete this row?')){const sh=row.closest('.sheet');row.remove();renumber(sh);if(sh)noteEdit(sh);}};
     btns.forEach(b=>b.onmousedown=e=>e.preventDefault());
   });
 }
@@ -2335,7 +2455,7 @@ function injectEditTools(root){
     b.onclick=e=>{
       e.preventDefault();
       const body=tb.querySelector('tbody'); if(!body||!body.lastElementChild) return;
-      const c=blankLike(body.lastElementChild); body.appendChild(c); wireTools(body);
+      const c=blankLike(body.lastElementChild); body.appendChild(c); wireTools(body); renumber(tb.closest('.sheet'));
       const f=c.querySelector('td'); if(f){ f.focus&&f.focus(); }
     };
     tb.after(b);
@@ -2760,7 +2880,20 @@ async function refreshFromDoc(){
     if(isCurrent(c)) toast('<b>✅ Patient page and diet sheet updated</b> from your edited discharge summary.',6000);
   } finally { $('staleGo').disabled=false; }
 }
+/* A medicine the second reading could not find on the paper must not leave the
+   app by accident: ask before any print / PDF / Word / WhatsApp. */
+function confirmRx(){
+  const rows=[...document.querySelectorAll('#sheetDoc table.rx tbody tr')].filter(tr=>tr.querySelector('.rxflag.bad'));
+  if(!rows.length) return;
+  const names=rows.map(tr=>{ const n=tr.querySelector('.nm'); return n?n.textContent.trim():'?'; });
+  if(confirm('⛔ '+names.join(', ')+(names.length>1?' were':' was')+' NOT found on the paper when the prescription was read a second time — probably not prescribed.\n\nOK = remove '+(names.length>1?'them':'it')+' before printing / sharing (recommended)\nCancel = keep — only if you have checked '+(names.length>1?'they are':'it is')+' on the paper')){
+    rows.forEach(tr=>tr.remove()); renumber($('sheetDoc')); noteEdit($('sheetDoc'));
+  } else {
+    rows.forEach(tr=>tr.querySelectorAll('.rxflag.bad').forEach(f=>{ f.classList.remove('bad'); f.textContent='✔ Kept by the doctor after checking the paper'; }));
+  }
+}
 async function offerRefresh(){
+  confirmRx();
   if(!DOC_EDITED || !EXTRA) return true;
   if(confirm('You edited the discharge summary after the patient page and diet sheet were written.\n\nOK = update the patient page and diet sheet with your edits first (recommended)\nCancel = continue with them as they are')){
     await refreshFromDoc();
@@ -2779,6 +2912,147 @@ function cleanNum(v){
 /* ============================================================
    10.  MAIN FLOW
    ============================================================ */
+/* ============================================================
+   PRESCRIPTION SAFETY
+   1. A fixed brand → generic list. Only exact brand matches are used; the AI's
+      own guess of a generic is shown as "unverified" on screen.
+   2. An independent second reading of ONLY the medication section. The two
+      readings are compared; every disagreement is flagged on screen so the
+      doctor checks it against the paper before printing.
+   3. Under every drug, a screen-only line shows what the paper itself says.
+   ============================================================ */
+const BRAND_GENERIC = {
+  'brilinta':'Ticagrelor','brillinta':'Ticagrelor','brilianta':'Ticagrelor','brillianta':'Ticagrelor','axcer':'Ticagrelor',
+  'ecosprin':'Aspirin','ecosprin av':'Aspirin + Atorvastatin','ecosprin gold':'Aspirin + Atorvastatin + Clopidogrel',
+  'clopilet':'Clopidogrel','deplatt':'Clopidogrel','clavix':'Clopidogrel','plavix':'Clopidogrel','prasugrel':'Prasugrel',
+  'storvas':'Atorvastatin','atorva':'Atorvastatin','lipitor':'Atorvastatin','tonact':'Atorvastatin',
+  'rosuvas':'Rosuvastatin','rozavel':'Rosuvastatin','crestor':'Rosuvastatin','rosulip':'Rosuvastatin',
+  'metpure xl':'Metoprolol succinate','metolar xr':'Metoprolol succinate','met xl':'Metoprolol succinate','seloken xl':'Metoprolol succinate',
+  'concor':'Bisoprolol','nebicard':'Nebivolol','nebistar':'Nebivolol','carca':'Carvedilol','cardivas':'Carvedilol',
+  'pantocid':'Pantoprazole','pan':'Pantoprazole','pantop':'Pantoprazole','nexpro':'Esomeprazole','razo':'Rabeprazole','rablet':'Rabeprazole',
+  'nikoran':'Nicorandil','korandil':'Nicorandil',
+  'dytor':'Torsemide','tide':'Torsemide','lasix':'Furosemide','aldactone':'Spironolactone','eptus':'Eplerenone',
+  'azmarda':'Sacubitril + Valsartan','vymada':'Sacubitril + Valsartan','arnipin':'Sacubitril + Valsartan',
+  'cardace':'Ramipril','ramistar':'Ramipril','telma':'Telmisartan','telsar':'Telmisartan','losar':'Losartan','repace':'Losartan',
+  'amlong':'Amlodipine','amlopres':'Amlodipine','stamlo':'Amlodipine','cilacar':'Cilnidipine',
+  'cordarone':'Amiodarone','lanoxin':'Digoxin','ivabrad':'Ivabradine',
+  'sorbitrate':'Isosorbide dinitrate','isordil':'Isosorbide dinitrate','monotrate':'Isosorbide mononitrate','nitrocontin':'Nitroglycerin',
+  'acitrom':'Acenocoumarol','warf':'Warfarin','eliquis':'Apixaban','xarelto':'Rivaroxaban','pradaxa':'Dabigatran',
+  'glycomet':'Metformin','glycomet gp':'Metformin + Glimepiride','jardiance':'Empagliflozin','forxiga':'Dapagliflozin','januvia':'Sitagliptin',
+  'lantus':'Insulin glargine','novorapid':'Insulin aspart','huminsulin':'Human insulin',
+  'thyronorm':'Levothyroxine','eltroxin':'Levothyroxine','febutaz':'Febuxostat','zyloric':'Allopurinol',
+  'aztor':'Atorvastatin','atorlip':'Atorvastatin','clopitab':'Clopidogrel','nebilong':'Nebivolol','aten':'Atenolol','tenormin':'Atenolol',
+  'dilzem':'Diltiazem','arkamin':'Clonidine','minipress xl':'Prazosin','telma h':'Telmisartan + Hydrochlorothiazide','telma am':'Telmisartan + Amlodipine',
+  'entresto':'Sacubitril + Valsartan','lasilactone':'Furosemide + Spironolactone','dytor plus':'Torsemide + Spironolactone','inspra':'Eplerenone',
+  'angispan tr':'Nitroglycerin','clexane':'Enoxaparin','potklor':'Potassium chloride','sodamint':'Sodium bicarbonate',
+  'trajenta':'Linagliptin','galvus':'Vildagliptin','janumet':'Sitagliptin + Metformin','glynase':'Glipizide','amaryl':'Glimepiride','reclide':'Gliclazide',
+  'pan d':'Pantoprazole + Domperidone','omez':'Omeprazole','rantac':'Ranitidine','emeset':'Ondansetron','duphalac':'Lactulose',
+  'dolo':'Paracetamol','crocin':'Paracetamol','shelcal':'Calcium carbonate + Vitamin D3','asthalin':'Salbutamol','budecort':'Budesonide',
+  'urimax':'Tamsulosin','urimax d':'Tamsulosin + Dutasteride','alprax':'Alprazolam','restyl':'Alprazolam','zolfresh':'Zolpidem'
+};
+function brandKey(b){ return String(b||'').toLowerCase().replace(/^(tab|cap|inj|syp|syr|drop|drops)\.?\s+/,'').replace(/\b\d+(\.\d+)?\s*(mg|mcg|g|iu|units?)\b/g,'').replace(/[^a-z ]+/g,' ').replace(/\s+/g,' ').trim(); }
+function knownGeneric(brand){
+  const k=brandKey(brand); if(!k) return '';
+  if(BRAND_GENERIC[k]) return BRAND_GENERIC[k];
+  // Only release-form suffixes may be dropped (same ingredients). Any other extra
+  // word — D, DSR, H, AM, Plus, Gold, AV, Forte, CV… — can mean a combination,
+  // so the generic is left blank rather than guessed.
+  const w=k.split(' '), REL=/^(od|sr|cr|er|la|retard)$/;
+  let n=w.length; while(n>1 && REL.test(w[n-1])) n--;
+  const base=w.slice(0,n).join(' ');
+  return (n<w.length && BRAND_GENERIC[base]) ? BRAND_GENERIC[base] : '';
+}
+const sched = s => String(s||'').replace(/[\s\-–—_.]+/g,'-').replace(/^-|-$/g,'');
+const sameBrand = (a,b)=>{ const x=brandKey(a).replace(/ /g,''), y=brandKey(b).replace(/ /g,''); if(!x||!y) return false;
+  if(x===y || x.indexOf(y)===0 || y.indexOf(x)===0) return true;
+  // tolerate one or two letters misread (Brilianta / Brillianta)
+  const m=Math.max(x.length,y.length); let d=0; const dp=[...Array(y.length+1).keys()];
+  for(let i=1;i<=x.length;i++){ let prev=dp[0]; dp[0]=i; for(let j=1;j<=y.length;j++){ const t=dp[j]; dp[j]=Math.min(dp[j]+1,dp[j-1]+1,prev+(x[i-1]===y[j-1]?0:1)); prev=t; } }
+  d=dp[y.length]; return d<=Math.max(1,Math.floor(m/6)); };
+
+const SYS_RX = "You are a hospital pharmacist double-checking a discharge prescription by reading the photographed paper itself. You copy exactly what is printed, character for character. You never add, guess, substitute or complete a medicine. Output STRICT JSON only.";
+function rxPrompt(n){ return `
+These are ${n} photograph(s) of a discharge summary. Find ONLY the discharge medication section (headed e.g. "Treatment advised", "Advice on discharge", "Rx", "Medications") and read it line by line.
+
+For EVERY medicine line, top to bottom, return:
+- "line": the whole line exactly as printed
+- "brand": the drug name EXACTLY as printed — letter for letter, including suffixes such as XL, XR, SR, OD, CR, D, AM, H, Plus, Forte, Gold, AV. Never correct spelling, never shorten, never substitute a generic or another brand.
+- "generic": only if a generic name is printed on the paper for that line, else ""
+- "strength": as printed, e.g. "90mg"
+- "form": Tab / Cap / Inj / Syp / Drop / Other
+- "schedule": the three dose digits for morning-afternoon-night exactly as printed on THAT line ("1 ------ 0 ------ 1" → "1-0-1"). Follow the line across carefully; never take the digits from the line above or below.
+- "timing" and "duration": only if written on that line, else ""
+- "page": page number
+
+Rules: every medicine on the paper must appear, none may be added. If a word is hard to read, give your best letter-by-letter reading and set "unsure": true. Count the lines before you answer and make sure your list has the same number.
+
+OUTPUT: {"count":0,"meds":[{"line":"","brand":"","generic":"","strength":"","form":"","schedule":"","timing":"","duration":"","page":1,"unsure":false}]}
+`; }
+
+/* Compare the main reading with the pharmacist reading; the pharmacist reading
+   (a narrower task, so more reliable) decides brand / strength / schedule;
+   every disagreement is flagged for the doctor. */
+function reconcileRx(first, check){
+  const A = arr(first).filter(m=>has(m.brand)||has(m.generic));
+  const B = arr(check).filter(m=>has(m.brand));
+  const used = new Set(), out=[];
+  B.forEach(b=>{
+    let ai = A.findIndex((a,i)=>!used.has(i) && sameBrand(a.brand||a.generic, b.brand));
+    const a = ai>=0 ? A[ai] : null; if(ai>=0) used.add(ai);
+    const flags=[];
+    if(!a) flags.push('Missed by the first reading — added from the second reading');
+    else {
+      if(sched(a.schedule)!==sched(b.schedule) && has(a.schedule) && has(b.schedule)) flags.push('Dose schedule read two ways: '+sched(a.schedule)+' / '+sched(b.schedule)+' — '+sched(b.schedule)+' used');
+      if(has(a.strength)&&has(b.strength)&&a.strength.replace(/\s/g,'').toLowerCase()!==b.strength.replace(/\s/g,'').toLowerCase()) flags.push('Strength read two ways: '+a.strength+' / '+b.strength);
+      if(has(a.brand) && a.brand.replace(/\s+/g,' ').trim().toLowerCase()!==b.brand.replace(/\s+/g,' ').trim().toLowerCase())
+        flags.push('Brand name read two ways: "'+a.brand+'" / "'+b.brand+'" — "'+b.brand+'" used. Check the spelling on the paper.');
+    }
+    if(b.unsure) flags.push('Hard to read on the paper');
+    out.push(Object.assign({}, a||{}, {
+      brand:b.brand, generic:b.generic||'', strength:b.strength||(a&&a.strength)||'', form:b.form||(a&&a.form)||'',
+      schedule:sched(b.schedule)||(a&&sched(a.schedule))||'', timing:b.timing||'', duration:b.duration||'',
+      asWritten:b.line||(a&&a.asWritten)||'', page:b.page||(a&&a.page)||'', _flags:flags
+    }));
+  });
+  A.forEach((a,i)=>{ if(!used.has(i)) out.push(Object.assign({},a,{_flags:['⛔ NOT FOUND in the second reading of the paper — probably not prescribed. Delete unless it is on the paper.'],_suspect:true})); });
+  return out;
+}
+/* Generic names — shown ONLY when certain:
+   (a) the brand is on the fixed list above, or
+   (b) the generic is printed on the paper itself, on that drug's own line.
+   Anything else is left blank. The brand is never altered. */
+function settleGenerics(list){
+  arr(list).forEach(m=>{
+    const g = knownGeneric(m.brand);
+    const onPaper = has(m.generic) && has(m.asWritten) &&
+                    String(m.asWritten).toLowerCase().indexOf(String(m.generic).toLowerCase().split(/[\s+]/)[0])>=0;
+    if(g)            m.generic = g;
+    else if(onPaper) m.generic = String(m.generic).trim();
+    else             m.generic = '';
+    if(brandKey(m.generic)===brandKey(m.brand)) m.generic = '';   // "Tab. Atorvastatin" needs no "(Atorvastatin)"
+    m.schedule = sched(m.schedule);
+    m._flags = arr(m._flags);
+  });
+  return list;
+}
+async function verifyPrescription(parts, d, c){
+  const imgs = parts.filter(p=>p.inlineData || /^=== PAGE/.test(p.text||''));
+  try{
+    status('Double-checking the prescription against the paper…');
+    const raw = await gemini(imgs.concat([{text:rxPrompt(imgs.filter(p=>p.inlineData).length)}]), SYS_RX, 12000, false, c, {quality:true, think:3000});
+    if(!isCurrent(c)) return;
+    const o = parseJSON(raw);
+    const meds = arr(o.meds||o.prescription);
+    if(meds.length){ d.prescription = reconcileRx(d.prescription, meds); d._rxChecked = true; }
+    else { d._rxChecked = false; }
+  }catch(e){
+    if(e && e.message==='__stale__') throw e;
+    d._rxChecked = false;
+  }
+  settleGenerics(d.prescription);
+  if(!d._rxChecked) arr(d.prescription).forEach(m=>m._flags.unshift('Second check could not run — verify this line against the paper'));
+}
+
 /* ---- New patient / clear ---------------------------------------------------
    Ends the current case completely: aborts every AI call still running for it,
    empties every cache, edit store and page, so nothing can reach the next patient. */
@@ -2888,10 +3162,13 @@ async function generate(){
     if(!parts.length) throw new Error('Could not read the uploaded images. Please retake the photos.');
     parts.push({text: extractPrompt(files.length)});
 
-    const raw = await gemini(parts, SYS_EXTRACT, 65536, false, c);
+    const raw = await gemini(parts, SYS_EXTRACT, 65536, false, c, {quality:true});
     if(!isCurrent(c)) return;
     const d = parseJSON(raw);
+    d._model = LAST_MODEL;
     d.patient=d.patient||{}; d.stay=d.stay||{}; d.hospital=d.hospital||{};
+    await verifyPrescription(parts, d, c);
+    if(!isCurrent(c)) return;
     deriveComorbidities(d);
     DATA = d;
 
@@ -3260,7 +3537,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   $('resetBtn').onclick = ()=>clearAll(true);
   $('clearBtn').onclick = ()=>clearAll(true);
 
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ $('pickModal').classList.remove('on'); $('pickTickModal').classList.remove('on'); $('waModal').classList.remove('on'); } });
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ $('tapModal').classList.remove('on'); $('pickModal').classList.remove('on'); $('pickTickModal').classList.remove('on'); $('waModal').classList.remove('on'); } });
 });
 })();
 </script>
