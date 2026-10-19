@@ -520,6 +520,12 @@ html.pdf-rendering table.labmx td.nm .ref{white-space:normal}
 .cam .flash.on{opacity:.75}
 .cam .hint{color:#cbd5e1;font-size:.78rem;text-align:center;padding:8px 12px 0}
 .rxchk{margin-top:4px;font-size:8.2pt;line-height:1.35;font-weight:500}
+.rxphoto{margin-top:4px;border:1px solid #cbd5e1;border-radius:5px;overflow:hidden;background:#fff}
+.rxphoto .cap{font-size:7.8pt;color:#475569;background:#f1f5f9;padding:2px 6px;font-weight:600}
+.rxphoto .okv{color:#047857;font-weight:800;margin-left:4px}
+.rxphoto .nov{color:#92400e;font-weight:700;margin-left:4px}
+.rxphoto img{display:block;width:100%;height:auto}
+table.rx tr.rxchkrow td{padding:0 6px 8px;border-top:0;background:#fafafa}
 .rxpaper{color:#475569;background:#f1f5f9;border-radius:4px;padding:2px 6px;margin-top:2px}
 .rxflag{color:#7c3d05;background:#fff4d6;border:1px solid #f5c76b;border-radius:4px;padding:3px 6px;margin-top:3px;font-weight:700}
 .rxflag.bad{color:#991b1b;background:#fee2e2;border-color:#fca5a5}
@@ -569,7 +575,7 @@ html.pdf-rendering table.labmx td.nm .ref{white-space:normal}
       <p>Photograph an old summary → get a clean, coded, patient-ready one</p>
     </div>
     <div class="spacer"></div>
-    <span class="ver">v2026-10-14</span>
+    <span class="ver">v2026-10-19</span>
   </div>
 </header>
 
@@ -1220,6 +1226,7 @@ ABSOLUTE RULES
 3. ICD-10 codes: you MAY supply the correct ICD-10-CM code from your own medical knowledge for each diagnosis — this is coding, not clinical invention. If you are not confident, use "" for icd10.
 4. BRAND NAMES ARE SACRED. "brand" is the drug name EXACTLY as printed — same spelling (even if it looks misspelt), same suffixes (XL, XR, SR, OD, CR, D, AM, H, Plus, Forte, Gold, AV), same order of words. Never correct it, never shorten it, never replace it with a generic or with a brand you expect. "generic": fill it ONLY if the generic name is itself printed on the paper next to that drug; otherwise "" (the app adds generics for brands it knows).
 4a. "brand", "strength" and "schedule" are copied character-for-character from the paper. "schedule" is the three dose digits exactly as printed, morning-afternoon-night (a line like "1 -------- 0 -------- 1" is "1-0-1"; "0 -------- 1 -------- 0" is "0-1-0"). Read each drug's own line across to its own digits — do not take the digits of the line above or below. "timing" (before/after food, bedtime) and "duration" ONLY if written on the paper; otherwise "".
+4d. "rxBox": the location of the discharge-medication list — "page" (1-based) and "box" = [ymin, xmin, ymax, xmax] on a 0-1000 scale of that photograph, enclosing EVERY medicine line including its dose digits, from the first medicine to the last.
 4c. Spelling: in diagnoses and clinical text, correct obvious misspellings of MEDICAL WORDS (e.g. "infract" → "infarct", "ssutained" → "sustained", "ischaemic" spelt wrongly) so the new summary reads correctly. NEVER "correct" a drug name, a number or a date.
 4b. PRESCRIPTION GROUNDING — THE MOST IMPORTANT RULE. List ONLY the medicines physically written in the discharge-advice / prescription section of THESE photographs, in the order written. For every medicine fill "asWritten" with the line copied exactly as it appears on the paper (brand, strength, schedule) and "page" with the page number. If you cannot point to the line on the paper, the medicine does not exist — leave it out. Do not "complete" a prescription with drugs usually given for the diagnosis. Do not carry over doses between drugs. If a dose or schedule is illegible, write "?" and add a note to "unreadable".
 5. Lab investigations repeated on more than one date MUST appear as ONE entry with several objects inside "results" — one object for EVERY date the test was performed, in chronological order. Do not drop a repeat because the value was unchanged or normal; every dated value printed on the paper must appear. Give the date on every result object. The same applies to imaging and special investigations: a study repeated on another date is a separate object in its array using the SAME "name", so they can be grouped date-wise.
@@ -1268,6 +1275,7 @@ OUTPUT EXACTLY THIS JSON SHAPE (no extra keys, no markdown):
  },
  "hospitalCourse":"",
  "treatmentGiven":[""],
+ "rxBox":{"page":1,"box":[0,0,0,0]},
  "prescription":[{"asWritten":"","page":0,"brand":"","generic":"","strength":"","form":"Tab|Cap|Inj|Syp|Drop|Other","schedule":"","timing":"","duration":"","purpose":"","route":""}],
  "interactions":[{"drugs":[""],"severity":"minor|moderate|major","note":""}],
  "followUp":{"intervalText":"","date":"","testsToRepeat":[""],"instructions":[""],"warningSigns":[""],"emergencyContact":""},
@@ -1614,18 +1622,23 @@ function cardList(list, title, icon){
 /* screen-only: what the paper says, and anything the doctor must check */
 function rxCheckNote(m){
   const f = arr(m._flags);
-  const paper = has(m.asWritten) ? '<div class="rxpaper">📄 On paper'+(m.page?' (p.'+esc(m.page)+')':'')+': <b>'+esc(m.asWritten)+'</b></div>' : '';
-  const warn = f.length ? '<div class="rxflag'+(m._suspect?' bad':'')+'">'+f.map(x=>'⚠ '+esc(x)).join('<br>')+'</div>' : '';
+  const paper = m._img
+    ? '<div class="rxphoto"><div class="cap">📷 Photo of this line'+(m.page?' (page '+esc(m.page)+')':'')+(m._ocr?' <span class="okv">'+[m._nameOk?'✓ name':'',m._strOk?'✓ strength':'',m._doseOk?'✓ dose':''].filter(Boolean).join(' ')+'</span>'+(m._doseOk?'':' <span class="nov">dose not machine-checked — compare with the photo</span>'):'')+'</div><img alt="photo of the prescription line" src="'+m._img+'"></div>'
+    : has(m.asWritten) ? '<div class="rxpaper">🤖 AI reading of the paper'+(m.page?' (p.'+esc(m.page)+')':'')+': <b>'+esc(m.asWritten)+'</b> <i>— no photo of this line was found; check the paper</i></div>' : '';
+  const warn = f.length ? '<div class="rxflag'+(m._suspect?' bad':'')+(m._doseConflict?' dosechk':'')+'" data-dose="'+esc(m._doseConflict||'')+'">'+f.map(x=>'⚠ '+esc(x)).join('<br>')+'</div>' : '';
   return (paper||warn) ? '<div class="rxchk noprint" contenteditable="false">'+paper+warn+'</div>' : '';
 }
 function rxBanner(d){
   const list=arr(d.prescription), nf=list.filter(m=>arr(m._flags).length).length;
   const lite = d._model && /lite/i.test(d._model);
   const lines=[];
-  if(d._rxChecked) lines.push('✅ Prescription read twice and compared'+(nf?' — <b>'+nf+' line'+(nf>1?'s':'')+' need'+(nf>1?'':'s')+' your check</b> (yellow notes below).':' — both readings agree.'));
+  if(d._ocr) lines.push('✅ Prescription read three ways — AI, a second AI reading, and the printed letters themselves (text recognition)'+(nf?' — <b>'+nf+' line'+(nf>1?'s':'')+' need'+(nf>1?'':'s')+' your check</b>.':' — all agree.'));
+  else if(d._rxChecked) lines.push('✅ Prescription read twice and compared'+(nf?' — <b>'+nf+' line'+(nf>1?'s':'')+' need'+(nf>1?'':'s')+' your check</b> (yellow notes below).':' — both readings agree.'));
   else lines.push('⚠ <b>The second reading of the prescription could not run.</b> Check every medicine against the paper.');
   if(lite) lines.push('⚠ Google\'s daily allowance for the stronger models is used up, so a <b>lighter model ('+esc(d._model)+')</b> read these photos. Check everything carefully, or add your own key.');
-  lines.push('The 📄 lines show what the paper says. These notes are on screen only — never printed, never in the PDF or WhatsApp.');
+  if(!d._ocr) lines.push('ℹ️ The printed-letter check could not run on this photo'+(navigator.onLine===false?' (offline)':'')+' — compare each medicine with the paper.');
+  lines.push(d._ocr ? 'Under each medicine is a cut-out of your photo — compare it with the typed line. These notes are on screen only — never printed, never in the PDF or WhatsApp.'
+                    : 'These notes are on screen only — never printed, never in the PDF or WhatsApp.');
   return '<div class="rxbanner noprint'+(nf||lite||!d._rxChecked?' warn':'')+'" contenteditable="false">'+lines.join('<br>')+'</div>';
 }
 function rxTable(list, interactions){
@@ -1633,11 +1646,11 @@ function rxTable(list, interactions){
   if(!list.length) return '';
   const rows = list.map((m,i)=>`<tr>
     <td style="text-align:center;color:var(--slate-600);font-weight:700">${i+1}</td>
-    <td><span class="nm">${esc(has(m.form)?m.form+'. ':'')}${esc(m.brand||m.generic||'')}</span>${has(m.strength)?' <b>'+esc(m.strength)+'</b>':''}${has(m.generic)&&m.generic!==m.brand?'<span class="gen">('+esc(m.generic)+')</span>':''}${rxCheckNote(m)}</td>
+    <td><span class="nm">${esc(has(m.form)?m.form+'. ':'')}${esc(m.brand||m.generic||'')}</span>${has(m.strength)?' <b>'+esc(m.strength)+'</b>':''}${has(m.generic)&&m.generic!==m.brand?'<span class="gen">('+esc(m.generic)+')</span>':''}</td>
     <td class="dose">${E(m.schedule,'—')}</td>
     <td style="font-size:8.6pt">${esc(has(m.timing)?m.timing:'—')}</td>
-    <td style="font-size:8.6pt">${esc(has(m.duration)?m.duration:'Continue')}</td>
-  </tr>`).join('');
+    <td style="font-size:8.6pt">${esc(has(m.duration)?m.duration:'—')}</td>
+  </tr>${(()=>{ const n=rxCheckNote(m); return n ? '<tr class="rxchkrow noprint" contenteditable="false"><td colspan="5">'+n+'</td></tr>' : ''; })()}`).join('');
   // Interaction flags are a bedside check for the treating doctor only.
   // The .noprint class keeps them off the printed sheet, out of the PDF,
   // out of the Word export and out of anything shared on WhatsApp.
@@ -2403,15 +2416,19 @@ function tools(target, kind){
   const del=document.createElement('button'); del.className='del'; del.type='button'; del.title='Delete this row'; del.textContent='×';
   dup.onmousedown=e=>{e.preventDefault();};
   del.onmousedown=e=>{e.preventDefault();};
-  dup.onclick=e=>{ e.preventDefault(); e.stopPropagation(); const c=blankLike(target); target.after(c); wireTools(c.parentNode); renumber(target.closest('.sheet')); };
-  del.onclick=e=>{ e.preventDefault(); e.stopPropagation(); if(confirm('Delete this '+(kind||'row')+'?')){ const sh=target.closest('.sheet'); target.remove(); renumber(sh); if(sh) noteEdit(sh); } };
+  dup.onclick=e=>{ e.preventDefault(); e.stopPropagation(); const c=blankLike(target); afterChk(target).after(c); wireTools(c.parentNode); renumber(target.closest('.sheet')); };
+  del.onclick=e=>{ e.preventDefault(); e.stopPropagation(); if(confirm('Delete this '+(kind||'row')+'?')){ const sh=target.closest('.sheet'); removeRow(target); renumber(sh); if(sh) noteEdit(sh); } };
   t.append(dup,del); return t;
 }
+/* a prescription row may carry a screen-only photo row right after it — they move together */
+const chkOf = r => (r && r.nextElementSibling && r.nextElementSibling.classList && r.nextElementSibling.classList.contains('rxchkrow')) ? r.nextElementSibling : null;
+const afterChk = r => chkOf(r) || r;
+function removeRow(r){ const c=chkOf(r); if(c) c.remove(); r.remove(); }
 /* keep # columns and diagnosis numbers in sequence after a row is added or deleted */
 function renumber(root){
   (root||document).querySelectorAll('table.rx tbody').forEach(tb=>{
     let n=0;
-    tb.querySelectorAll(':scope > tr').forEach(tr=>{
+    tb.querySelectorAll(':scope > tr:not(.rxchkrow)').forEach(tr=>{
       const c=tr.firstElementChild; if(!c) return; n++;
       const t=[...c.childNodes].find(x=>x.nodeType===3 && x.nodeValue.trim()!=='') || [...c.childNodes].find(x=>x.nodeType===3);
       if(t) t.nodeValue=String(n); else c.insertBefore(document.createTextNode(String(n)), c.firstChild);
@@ -2424,15 +2441,15 @@ function wireTools(scope){
     const row=t.closest('tr')||t.closest('.dxitem')||t.closest('li')||t.closest('.imgcard')||t.closest('.proc');
     if(!row) return;
     const btns=t.querySelectorAll('button');
-    btns[0].onclick=e=>{e.preventDefault();e.stopPropagation();const c=blankLike(row);row.after(c);wireTools(c.parentNode);renumber(row.closest('.sheet'));};
-    btns[1].onclick=e=>{e.preventDefault();e.stopPropagation();if(confirm('Delete this row?')){const sh=row.closest('.sheet');row.remove();renumber(sh);if(sh)noteEdit(sh);}};
+    btns[0].onclick=e=>{e.preventDefault();e.stopPropagation();const c=blankLike(row);afterChk(row).after(c);wireTools(c.parentNode);renumber(row.closest('.sheet'));};
+    btns[1].onclick=e=>{e.preventDefault();e.stopPropagation();if(confirm('Delete this row?')){const sh=row.closest('.sheet');removeRow(row);renumber(sh);if(sh)noteEdit(sh);}};
     btns.forEach(b=>b.onmousedown=e=>e.preventDefault());
   });
 }
 function injectEditTools(root){
   // table rows
   root.querySelectorAll('table.t tbody tr').forEach(tr=>{
-    if(tr.classList.contains('panelrow')) return;
+    if(tr.classList.contains('panelrow') || tr.classList.contains('rxchkrow')) return;
     if(tr.querySelector('.rowtool')) return;
     const inMatrix = !!tr.closest('table.labmx');
     const host = inMatrix ? tr.firstElementChild : tr.lastElementChild;
@@ -2454,8 +2471,8 @@ function injectEditTools(root){
     b.onmousedown=e=>e.preventDefault();
     b.onclick=e=>{
       e.preventDefault();
-      const body=tb.querySelector('tbody'); if(!body||!body.lastElementChild) return;
-      const c=blankLike(body.lastElementChild); body.appendChild(c); wireTools(body); renumber(tb.closest('.sheet'));
+      const body=tb.querySelector('tbody'); const rows=body?[...body.children].filter(r=>!r.classList.contains('rxchkrow')):[]; if(!rows.length) return;
+      const c=blankLike(rows[rows.length-1]); body.appendChild(c); wireTools(body); renumber(tb.closest('.sheet'));
       const f=c.querySelector('td'); if(f){ f.focus&&f.focus(); }
     };
     tb.after(b);
@@ -2883,17 +2900,27 @@ async function refreshFromDoc(){
 /* A medicine the second reading could not find on the paper must not leave the
    app by accident: ask before any print / PDF / Word / WhatsApp. */
 function confirmRx(){
-  const rows=[...document.querySelectorAll('#sheetDoc table.rx tbody tr')].filter(tr=>tr.querySelector('.rxflag.bad'));
+  const rows=[...document.querySelectorAll('#sheetDoc table.rx tbody tr.rxchkrow')].filter(tr=>tr.querySelector('.rxflag.bad')).map(c=>c.previousElementSibling).filter(Boolean);
   if(!rows.length) return;
   const names=rows.map(tr=>{ const n=tr.querySelector('.nm'); return n?n.textContent.trim():'?'; });
   if(confirm('⛔ '+names.join(', ')+(names.length>1?' were':' was')+' NOT found on the paper when the prescription was read a second time — probably not prescribed.\n\nOK = remove '+(names.length>1?'them':'it')+' before printing / sharing (recommended)\nCancel = keep — only if you have checked '+(names.length>1?'they are':'it is')+' on the paper')){
-    rows.forEach(tr=>tr.remove()); renumber($('sheetDoc')); noteEdit($('sheetDoc'));
+    rows.forEach(tr=>removeRow(tr)); renumber($('sheetDoc')); noteEdit($('sheetDoc'));
   } else {
-    rows.forEach(tr=>tr.querySelectorAll('.rxflag.bad').forEach(f=>{ f.classList.remove('bad'); f.textContent='✔ Kept by the doctor after checking the paper'; }));
+    rows.forEach(tr=>(chkOf(tr)||tr).querySelectorAll('.rxflag.bad').forEach(f=>{ f.classList.remove('bad'); f.textContent='✔ Kept by the doctor after checking the paper'; }));
   }
+}
+/* doses the readings disagreed on must be checked by the doctor before anything leaves the app */
+function confirmDoses(){
+  const rows=[...document.querySelectorAll('#sheetDoc table.rx tbody tr.rxchkrow')].filter(tr=>tr.querySelector('.rxflag.dosechk')).map(c=>c.previousElementSibling).filter(Boolean);
+  if(!rows.length) return true;
+  const list=rows.map(tr=>{ const n=tr.querySelector('.nm'), d=tr.querySelector('.dose'); return '• '+(n?n.textContent.trim():'?')+' — now '+(d?d.textContent.trim():'?'); });
+  const okd = confirm('Please confirm these doses against the photo / paper — the readings did not agree:\n\n'+list.join('\n')+'\n\nOK = I have checked them (correct any with Edit first)\nCancel = go back and check');
+  if(okd) rows.forEach(tr=>(chkOf(tr)||tr).querySelectorAll('.rxflag.dosechk').forEach(f=>f.classList.remove('dosechk')));
+  return okd;
 }
 async function offerRefresh(){
   confirmRx();
+  if(!confirmDoses()) return false;
   if(!DOC_EDITED || !EXTRA) return true;
   if(confirm('You edited the discharge summary after the patient page and diet sheet were written.\n\nOK = update the patient page and diet sheet with your edits first (recommended)\nCancel = continue with them as they are')){
     await refreshFromDoc();
@@ -2962,7 +2989,9 @@ function knownGeneric(brand){
   const base=w.slice(0,n).join(' ');
   return (n<w.length && BRAND_GENERIC[base]) ? BRAND_GENERIC[base] : '';
 }
-const sched = s => String(s||'').replace(/[\s\-–—_.]+/g,'-').replace(/^-|-$/g,'');
+/* "1 ---- 0 ---- 1" → "1-0-1"; free text such as "Once a week for 4 weeks" is kept as written */
+const sched = s => { const t=String(s||'').trim(); if(/[a-z]{3,}/i.test(t)) return t.replace(/\s+/g,' ');
+  return t.replace(/[\s\-–—_.]+/g,'-').replace(/^-|-$/g,''); };
 const sameBrand = (a,b)=>{ const x=brandKey(a).replace(/ /g,''), y=brandKey(b).replace(/ /g,''); if(!x||!y) return false;
   if(x===y || x.indexOf(y)===0 || y.indexOf(x)===0) return true;
   // tolerate one or two letters misread (Brilianta / Brillianta)
@@ -2971,7 +3000,13 @@ const sameBrand = (a,b)=>{ const x=brandKey(a).replace(/ /g,''), y=brandKey(b).r
   d=dp[y.length]; return d<=Math.max(1,Math.floor(m/6)); };
 
 const SYS_RX = "You are a hospital pharmacist double-checking a discharge prescription by reading the photographed paper itself. You copy exactly what is printed, character for character. You never add, guess, substitute or complete a medicine. Output STRICT JSON only.";
-function rxPrompt(n){ return `
+function rxPrompt(n, ocr){
+  const hint = arr(ocr).length ? `
+A text-recognition program read the printed drug names in this block as follows (its letters are reliable; its numbers and the dose digits between the dashes are often garbled — read those from the image):
+${ocr.map((l,i)=>(i+1)+'. '+l).join('\n')}
+Use this list to make sure you do not merge, skip or invent lines: the image has exactly ${ocr.length} medicine line(s) unless you can clearly see more.
+` : '';
+  return `
 These are ${n} photograph(s) of a discharge summary. Find ONLY the discharge medication section (headed e.g. "Treatment advised", "Advice on discharge", "Rx", "Medications") and read it line by line.
 
 For EVERY medicine line, top to bottom, return:
@@ -2984,6 +3019,7 @@ For EVERY medicine line, top to bottom, return:
 - "timing" and "duration": only if written on that line, else ""
 - "page": page number
 
+${hint}
 Rules: every medicine on the paper must appear, none may be added. If a word is hard to read, give your best letter-by-letter reading and set "unsure": true. Count the lines before you answer and make sure your list has the same number.
 
 OUTPUT: {"count":0,"meds":[{"line":"","brand":"","generic":"","strength":"","form":"","schedule":"","timing":"","duration":"","page":1,"unsure":false}]}
@@ -3035,22 +3071,320 @@ function settleGenerics(list){
   });
   return list;
 }
+/* ============================================================
+   PRINTED-TEXT CHECK (OCR) — an independent, non-AI reading
+   Tesseract reads the actual letters in the photo. It cannot invent a
+   medicine or "correct" a brand name: it only reports what is printed.
+   It is used to (1) confirm or overrule the AI's brand names, (2) catch
+   medicines the AI made up, (3) check the dose digits, and (4) cut out a
+   real picture of each prescription line for the doctor to compare.
+   ============================================================ */
+const TESS = {
+  js:   'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+  worker:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  core: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+  lang: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int'
+};
+let _tessP=null, _ocrW=null;
+function loadTess(){
+  if(window.Tesseract) return Promise.resolve(window.Tesseract);
+  if(!_tessP) _tessP = new Promise((res,rej)=>{
+    const s=document.createElement('script'); s.src=TESS.js; s.async=true;
+    s.onload=()=>window.Tesseract?res(window.Tesseract):rej(new Error('OCR engine missing'));
+    s.onerror=()=>{ _tessP=null; rej(new Error('OCR engine could not be downloaded')); };
+    document.head.appendChild(s);
+  });
+  return _tessP;
+}
+async function ocrWorker(){
+  if(_ocrW) return _ocrW;
+  const T = await withTimeout(loadTess(), 25000, 'Downloading the text-recognition engine');
+  _ocrW = await T.createWorker('eng', 1, { workerPath:TESS.worker, corePath:TESS.core, langPath:TESS.lang });
+  await _ocrW.setParameters({ preserve_interword_spaces:'1', tessedit_pageseg_mode:'6' });
+  return _ocrW;
+}
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error(what+' took too long')), ms))]);
+
+async function fileBitmap(f){
+  if(window.createImageBitmap){ try{ return await createImageBitmap(f); }catch(e){} }
+  return await new Promise((res,rej)=>{ const u=URL.createObjectURL(f), im=new Image();
+    im.onload=()=>{ URL.revokeObjectURL(u); res(im); }; im.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('image unreadable')); }; im.src=u; });
+}
+/* crop a page to a box (0-1000 units), enlarge so text is ~3x, grey + stretch contrast */
+function cropEnhance(bmp, box){
+  const W=bmp.width, H=bmp.height;
+  let [y0,x0,y1,x1] = box.map(Number);
+  const sx=Math.max(0, Math.floor(W*x0/1000)), sy=Math.max(0, Math.floor(H*y0/1000));
+  const sw=Math.min(W, Math.ceil(W*x1/1000))-sx, sh=Math.min(H, Math.ceil(H*y1/1000))-sy;
+  if(sw<40 || sh<20) return null;
+  const scale = Math.max(1, Math.min(3.2, 2000/sw));
+  const cv=document.createElement('canvas'); cv.width=Math.round(sw*scale); cv.height=Math.round(sh*scale);
+  const g=cv.getContext('2d',{willReadFrequently:true});
+  g.imageSmoothingEnabled=true; g.imageSmoothingQuality='high';
+  g.drawImage(bmp, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+  const id=g.getImageData(0,0,cv.width,cv.height), p=id.data, n=cv.width*cv.height, gray=new Uint8ClampedArray(n);
+  const hist=new Uint32Array(256);
+  for(let i=0;i<n;i++){ const v=(p[i*4]*0.299+p[i*4+1]*0.587+p[i*4+2]*0.114)|0; gray[i]=v; hist[v]++; }
+  let lo=0, hi=255, acc=0; while(lo<255 && (acc+=hist[lo])<n*0.02) lo++; acc=0; while(hi>0 && (acc+=hist[hi])<n*0.02) hi--;
+  const span=Math.max(1,hi-lo);
+  for(let i=0;i<n;i++) gray[i]=Math.max(0,Math.min(255,((gray[i]-lo)*255/span)|0));
+  // unsharp mask (3x3) — canvas enlargement blurs letter edges
+  const W2=cv.width, H2=cv.height, src=gray.slice();
+  for(let y=1;y<H2-1;y++) for(let x=1;x<W2-1;x++){ const i=y*W2+x;
+    const blur=(src[i-W2-1]+src[i-W2]+src[i-W2+1]+src[i-1]+src[i]+src[i+1]+src[i+W2-1]+src[i+W2]+src[i+W2+1])/9;
+    gray[i]=Math.max(0,Math.min(255, src[i]+1.2*(src[i]-blur))); }
+  for(let i=0;i<n;i++){ const v=gray[i]; p[i*4]=p[i*4+1]=p[i*4+2]=v; }
+  g.putImageData(id,0,0);
+  return {cv, gray, W:cv.width, H:cv.height};
+}
+function otsu(gray, W, x0, y0, x1, y1){
+  const h=new Float64Array(256); let n=0;
+  for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){ h[gray[y*W+x]]++; n++; }
+  let sum=0; for(let i=0;i<256;i++) sum+=i*h[i];
+  let sB=0, wB=0, best=0, t=128;
+  for(let i=0;i<256;i++){ wB+=h[i]; if(!wB) continue; const wF=n-wB; if(!wF) break; sB+=i*h[i];
+    const mB=sB/wB, mF=(sum-sB)/wF, v=wB*wF*(mB-mF)*(mB-mF); if(v>best){ best=v; t=i; } }
+  return t;
+}
+/* Dose digits "1 ------ 0 ------ 1": find the marks that are taller than a dash
+   and decide 0 or 1 by whether the mark encloses a hole. Returns "1-0-1" only
+   when exactly three clean marks are found — otherwise null (no opinion). */
+function readDoseDigits(img, lb, startX){
+  const {gray, W} = img;
+  const y0=Math.max(0,lb.y0), y1=Math.min(img.H,lb.y1), x0=Math.max(0,startX), x1=W;
+  const LH=y1-y0; if(LH<8 || x1-x0<LH*3) return null;
+  const t=otsu(gray,W,x0,y0,x1,y1);
+  const ink=(x,y)=>gray[y*W+x]<t;
+  const tall=[];
+  for(let x=x0;x<x1;x++){ let top=-1,bot=-1; for(let y=y0;y<y1;y++) if(ink(x,y)){ if(top<0) top=y; bot=y; } tall.push(top>=0 && (bot-top+1)>=0.34*LH); }
+  let runs=[]; for(let i=0;i<tall.length;i++){ if(tall[i]){ let s=i; while(i<tall.length&&tall[i]) i++; runs.push([s,i]); } }
+  const gap=Math.max(3,Math.round(LH*0.08)); const m=[];
+  runs.forEach(r=>{ if(m.length && r[0]-m[m.length-1][1]<=gap) m[m.length-1][1]=r[1]; else m.push(r); });
+  // a digit is narrower than the line is tall; wider dark marks are page edges, shadows or stamps
+  runs=m.filter(r=>r[1]-r[0]>=Math.max(3,LH*0.08) && r[1]-r[0]<=LH*0.85);
+  if(runs.length!==3) return null;
+  const digit=r=>{
+    const a=x0+r[0]-2, b=x0+r[1]+2, w=b-a, h=LH; const seen=new Uint8Array(w*h); const q=[]; let inkN=0;
+    for(let yy=0;yy<h;yy++) for(let xx=0;xx<w;xx++){ const X=a+xx, Y=y0+yy; const on = X>=0&&X<W && ink(X,Y); if(on){ inkN++; seen[yy*w+xx]=2; } }
+    for(let xx=0;xx<w;xx++){ [0,h-1].forEach(yy=>{ if(!seen[yy*w+xx]){ seen[yy*w+xx]=1; q.push(yy*w+xx); } }); }
+    for(let yy=0;yy<h;yy++){ [0,w-1].forEach(xx=>{ if(!seen[yy*w+xx]){ seen[yy*w+xx]=1; q.push(yy*w+xx); } }); }
+    while(q.length){ const k=q.pop(), xx=k%w, yy=(k/w)|0; [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{ const X=xx+dx, Y=yy+dy; if(X>=0&&X<w&&Y>=0&&Y<h){ const j=Y*w+X; if(!seen[j]){ seen[j]=1; q.push(j); } } }); }
+    let holes=0; for(let i=0;i<w*h;i++) if(!seen[i]) holes++;
+    const wr=(r[1]-r[0])/LH;                 // only the tall stem of a "1" counts, so a 1 is narrow and a 0 is wide
+    if(wr>=0.40) return '0';
+    if(wr<=0.28) return '1';
+    return holes>0.04*inkN+3 ? '0' : null;   // in between and no clear hole: no opinion
+  };
+  readDoseDigits.lastEnd = x0+runs[2][1];
+  const ds=runs.map(digit);
+  return ds.some(x=>x===null) ? null : ds.join('-');
+}
+const FORMS=['tab','tabs','cap','caps','inj','syp','syr','susp','drop','drops','oint','gel','sachet'];
+/* "Tab." is often misread as "lab.", "rab.", "Ta", "T ab" — accept anything one letter away */
+function isForm(t){ const x=String(t||'').toLowerCase().replace(/[^a-z]/g,''); if(!x || x.length>6) return false;
+  return FORMS.some(f=>x===f || (x.length>=2 && lev(x,f)<=1)); }
+const STR_RE=/^([\dSsOo][\d.,]*)\s*(m[a-z0-9]{0,2}|mcg|ug|gm|g|k|iu|ml|units?|%)?[^A-Za-z0-9]*$/i;
+function cleanStrength(s){
+  let t=String(s||'').trim(); if(!t) return '';
+  t=t.replace(/[^A-Za-z0-9.%]+$/,'');
+  t=t.replace(/^[Ss](?=[\d.]*\s*m)/,'5').replace(/^[Ss]$/,'5').replace(/^[Oo](?=\d)/,'0').replace(/(\d)[Oo]/g,'$10');
+  if(/^[\d.]+\s*m(?!cg)[a-z0-9]{0,2}$/i.test(t)) t=t.replace(/m[a-z0-9]{0,2}$/i,'mg');   // 40maq, 40mq, 40MG → 40mg
+  return t.replace(/MCG$/i,'mcg').replace(/k$/,'K');
+}
+/* turn one OCR text line into {form, brand, brandConf, strength, strengthConf, rest, x1} */
+function parseOcrLine(l){
+  let w=(l.words||[]).filter(x=>String(x.text||'').trim());
+  // the form word ("Tab.") may follow a stray mark or two at the left edge
+  const fi = w.slice(0,3).findIndex(x=>isForm(x.text));
+  if(fi<0) return null;
+  w = w.slice(fi);
+  if(w.length<2) return null;
+  const brandW=[]; let i=1;
+  const ch = (w[0].bbox.y1-w[0].bbox.y0)||20;
+  for(; i<w.length; i++){
+    const t=w[i].text;
+    if(STR_RE.test(t) && /\d|mg|k$/i.test(t) && i>1) break;
+    if(i>1 && w[i].bbox.x0 - w[i-1].bbox.x1 > ch*1.6) break;     // a wide gap ends the name
+    if(w[i].confidence<45) break;
+    brandW.push(w[i]);
+    if(brandW.length>=4) { i++; break; }
+  }
+  if(!brandW.length) return null;
+  let strength='', sConf=0, x1=brandW[brandW.length-1].bbox.x1;
+  if(i<w.length && STR_RE.test(w[i].text)){ strength=cleanStrength(w[i].text); sConf=w[i].confidence; x1=w[i].bbox.x1; i++; }
+  const rest=w.slice(i).filter(x=>x.confidence>=70).map(x=>x.text).join(' ');
+  return { form:(FORMS.find(f=>lev(w[0].text.toLowerCase().replace(/[^a-z]/g,''),f)<=1)||'tab').replace(/^./,ch=>ch.toUpperCase()).replace(/s$/,''), brand:brandW.map(x=>x.text).join(' ').replace(/[.,:;]+$/,''),
+           brandConf:Math.min(...brandW.map(x=>x.confidence)), strength, strengthConf:sConf, rest, x1, bbox:l.bbox };
+}
+function lineSnapshot(img, bb){
+  const pad=Math.round((bb.y1-bb.y0)*0.3);
+  const y0=Math.max(0,bb.y0-pad), y1=Math.min(img.H,bb.y1+pad), x0=Math.max(0,bb.x0-pad), x1=Math.min(img.W, bb.x1+pad*2);
+  const w=x1-x0, h=y1-y0, sc=Math.min(1, 1100/w);
+  const c=document.createElement('canvas'); c.width=Math.round(w*sc); c.height=Math.round(h*sc);
+  c.getContext('2d').drawImage(img.cv, x0, y0, w, h, 0, 0, c.width, c.height);
+  const u=c.toDataURL('image/jpeg',0.72); c.width=c.height=1; return u;
+}
+async function ocrBlock(img){
+  const wk = await ocrWorker();
+  const r = await wk.recognize(img.cv, {}, {blocks:true, text:true});
+  const lines=[];
+  (r.data.blocks||[]).forEach(b=>(b.paragraphs||[]).forEach(p=>(p.lines||[]).forEach(l=>lines.push(l))));
+  return { lines, text:r.data.text||'' };
+}
+/* Read the prescription block of the photo. Returns {lines:[...], blockB64} or null. */
+async function ocrPrescription(d, c){
+  const pages = files.slice(0, 12);
+  if(!pages.length) return null;
+  let tries=[];
+  const rb = d.rxBox || {};
+  const pg = Math.max(1, Math.min(pages.length, parseInt(rb.page,10)||1));
+  if(Array.isArray(rb.box) && rb.box.length===4){
+    const [y0,x0,y1] = rb.box.map(Number);
+    tries.push({page:pg, box:[Math.max(0,y0-25), Math.max(0,x0-30), Math.min(1000,y1+30), 1000]});
+  }
+  // fallback (no box from the AI, or nothing found in it): two overlapping slices of that page
+  tries.push({page:pg, box:[250,0,720,1000]}); tries.push({page:pg, box:[520,0,1000,1000]});
+  for(const t of tries){
+    if(!isCurrent(c)) return null;
+    const bmp = await fileBitmap(pages[t.page-1]);
+    const img = cropEnhance(bmp, t.box); try{ bmp.close&&bmp.close(); }catch(e){}
+    if(!img) continue;
+    const res = await ocrBlock(img);
+    const meds = res.lines.map(l=>{ const o=parseOcrLine(l); if(!o) return null;
+      readDoseDigits.lastEnd=0; o.dose = readDoseDigits(img, l.bbox, o.x1+6); o.doseEnd=readDoseDigits.lastEnd;
+      const lb=Object.assign({}, l.bbox); if(o.doseEnd) lb.x1=Math.max(lb.x1, o.doseEnd);
+      o.snap = lineSnapshot(img, lb); o.page=t.page; return o; }).filter(Boolean);
+    if(meds.length>=1){
+      const blockB64 = img.cv.toDataURL('image/jpeg',0.9).split(',')[1];
+      img.cv.width=img.cv.height=1;
+      return { lines:meds, text:res.text, blockB64, page:t.page };
+    }
+    img.cv.width=img.cv.height=1;
+  }
+  return null;
+}
+
+/* ---- three readings → one prescription --------------------------------- */
+const nk = s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+function lev(a,b){ const dp=[...Array(b.length+1).keys()]; for(let i=1;i<=a.length;i++){ let prev=dp[0]; dp[0]=i; for(let j=1;j<=b.length;j++){ const t=dp[j]; dp[j]=Math.min(dp[j]+1,dp[j-1]+1,prev+(a[i-1]===b[j-1]?0:1)); prev=t; } } return dp[b.length]; }
+function nameSim(a,b){ const x=nk(a), y=nk(b); if(!x||!y) return 0; if(x===y) return 1;
+  if(x.length>=4 && y.length>=4 && (x.startsWith(y)||y.startsWith(x))) return 0.9;
+  return 1 - lev(x,y)/Math.max(x.length,y.length); }
+/* two names are the same medicine only if they differ by at most one letter in four
+   ("Brilianta" = "Brillianta"); "Nikorvas" is NOT "Nikobeat" */
+function bestMatch(name, list, used){ let bi=-1, bs=0; list.forEach((m,i)=>{ if(used.has(i)) return; const s=nameSim(name, m.brand||m.generic); if(s>bs){ bs=s; bi=i; } });
+  if(bi<0) return -1; const x=nk(name), y=nk(list[bi].brand||list[bi].generic);
+  return (bs>=0.75 || (Math.max(x.length,y.length)<=4 && lev(x,y)<=1)) ? bi : -1; }
+const sameStr=(a,b)=>nk(a)===nk(b);
+/* A = first AI reading, B = second AI reading (or []), O = OCR lines (or []) */
+function reconcile3(A, B, O, ocrText){
+  A=arr(A).filter(m=>has(m.brand)||has(m.generic)); B=arr(B).filter(m=>has(m.brand)); O=arr(O);
+  const uA=new Set(), uB=new Set(), out=[];
+  const pick3=(o,a,b,label,oTrusted)=>{  // majority of up to three values
+    const vals=[o,a,b].map(v=>has(v)?String(v).trim():'');
+    if(oTrusted && vals[0] && (sameStr(vals[0],vals[1])||sameStr(vals[0],vals[2]))) return {v:vals[0], ok:true};
+    if(vals[1] && sameStr(vals[1],vals[2])) return {v:vals[1], ok:!vals[0]||!oTrusted||sameStr(vals[0],vals[1]), alt:oTrusted&&vals[0]&&!sameStr(vals[0],vals[1])?vals[0]:''};
+    return {v:vals[2]||vals[1]||vals[0], ok:false};
+  };
+  O.forEach(o=>{
+    const ia=bestMatch(o.brand,A,uA), ib=bestMatch(o.brand,B,uB);
+    if(ia>=0) uA.add(ia); if(ib>=0) uB.add(ib);
+    const a=ia>=0?A[ia]:{}, b=ib>=0?B[ib]:{};
+    const flags=[]; const trustName = o.brandConf>=80;
+    // BRAND — the printed letters win when OCR is confident; never an AI "correction"
+    let brand;
+    if(trustName){ brand=o.brand;
+      const aiNames=[a.brand,b.brand].filter(has);
+      if(aiNames.length && !aiNames.some(n=>sameStr(n,o.brand))) flags.push('Name: AI read "'+[...new Set(aiNames)].join('" / "')+'" — printed "'+o.brand+'" used.');
+    } else {
+      brand = b.brand || a.brand || o.brand;
+      if(has(a.brand)&&has(b.brand)&&!sameStr(a.brand,b.brand)) flags.push('Name read two ways: "'+a.brand+'" / "'+b.brand+'" — check the photo.');
+      else if(!has(a.brand)&&!has(b.brand)) flags.push('Only the printed-text reader found this line — check the photo.');
+    }
+    // STRENGTH
+    const sO=o.strength||'', sA=cleanStrength(a.strength), sB=cleanStrength(b.strength);
+    let strength='', strengthOk=false;
+    if(sO && (sameStr(sO,sA)||sameStr(sO,sB))){ strength=sO; strengthOk=true; }
+    else if(sO && o.strengthConf>=80){ strength=sO; strengthOk=true; if(sA||sB) flags.push('The AI read the strength as '+[sA,sB].filter(has).join(' / ')+'; the printed text reads '+sO+' — printed value used. Check the photo.'); }
+    else if(sA && sameStr(sA,sB)){ strength=sA; if(sO) flags.push('Printed strength looks like '+sO+' — check the photo.'); }
+    else { strength = sO || sB || sA; const all=[sO,sA,sB].filter(has); if(new Set(all.map(nk)).size>1) flags.push('Strength read differently ('+all.join(' / ')+') — check the photo.'); else if(sO && !sA && !sB) flags.push('Strength from the printed text only — check the photo.'); }
+    // DOSE — OCR digits are a check, two agreeing AI readings are not overruled by them
+    const sa=sched(a.schedule), sb=sched(b.schedule), so=o.dose||'';
+    const free = !o.dose && o.rest && /[a-z]{3,}/i.test(o.rest) ? o.rest.replace(/[^A-Za-z0-9)]+$/,'') : '';
+    // DOSE — the printed-digit check confirms; it never overrules an AI reading (it can misread a tilted photo)
+    let dose, doseConflict='';
+    if(so && (so===sa || so===sb)) dose=so;
+    else if(sa || sb){
+      dose = (sa && sb && sa!==sb) ? sb : (sb||sa);
+      if(sa && sb && sa!==sb) { flags.push('Dose read two ways by the AI: '+sa+' / '+sb+' — '+dose+' used. Check the photo.'); doseConflict=sa+' / '+sb; }
+      if(so && !/[a-z]/i.test(dose)) { flags.push('Dose: printed digits look like '+so+', not '+dose+' — check the photo.'); doseConflict = doseConflict || (dose+' vs printed '+so); }
+    }
+    else if(free){ dose=free; }                                      // e.g. "Once a week for 4 weeks", as printed
+    else if(so){ dose=so; flags.push('Dose from the printed digits only — check the photo.'); doseConflict='printed digits only'; }
+    else { dose=''; flags.push('Dose could not be read — fill it in from the paper.'); doseConflict='not read'; }
+    out.push(Object.assign({}, a, b, {
+      brand, form: (b.form||a.form||o.form||'Tab').replace(/\.$/,''), strength, schedule: dose,
+      timing: b.timing||a.timing||'', duration: b.duration||a.duration||'',
+      generic: b.generic||a.generic||'', asWritten: b.line||a.asWritten||'', page:o.page,
+      _img:o.snap, _flags:flags, _ocr:true, _doseConflict:doseConflict,
+      _nameOk: trustName && (sameStr(o.brand,a.brand)||sameStr(o.brand,b.brand)), _strOk: strengthOk, _doseOk: !!so && so===dose
+    }));
+  });
+  // medicines the AI produced that the printed text does not contain
+  const strongO = O.length>=2;
+  // is this name anywhere in the printed letters at all (even on a line the parser skipped)?
+  const words = String(ocrText||'').split(/[^A-Za-z0-9]+/).filter(w=>w.length>=3);
+  const inPrint = name => { const first=String(name||'').split(/\s+/)[0]; return words.some(w=>nameSim(w,first)>=0.8); };
+  B.forEach((b,i)=>{ if(uB.has(i)) return; const ia=bestMatch(b.brand,A,uA); const a=ia>=0?A[ia]:null; if(ia>=0) uA.add(ia);
+    const both=!!a && inPrint(b.brand);
+    out.push(Object.assign({}, a||{}, b, {brand:b.brand, schedule:sched(b.schedule||(a&&a.schedule)), asWritten:b.line||'', generic:b.generic||'',
+      _flags:[ strongO ? (both ? 'Both AI readings list this and the name is in the printed text, but its line could not be cut out — check the paper.'
+                              : '⛔ "'+b.brand+'" is NOT in the printed text'+(a?'':' and only one AI reading saw it')+' — probably invented or a merge of two lines. Delete unless it is on the paper.')
+                       : (both?'':'Only one AI reading found this — check against the paper.') ].filter(Boolean),
+      _suspect: strongO && !both }));
+  });
+  A.forEach((a,i)=>{ if(uA.has(i)) return;
+    out.push(Object.assign({}, a, {_flags:[ strongO ? '⛔ NOT in the printed text and not in the second reading — probably invented. Delete unless it is on the paper.'
+                                                   : '⛔ Not found in the second reading — probably not prescribed. Delete unless it is on the paper.'], _suspect:true}));
+  });
+  return out;
+}
+
 async function verifyPrescription(parts, d, c){
-  const imgs = parts.filter(p=>p.inlineData || /^=== PAGE/.test(p.text||''));
+  const A = arr(d.prescription).map(m=>Object.assign({},m));
+  // 1. printed-text reading (OCR) — independent of the AI
+  let O=null;
+  try{
+    status('Reading the printed prescription letter by letter (text recognition)…');
+    O = await withTimeout(ocrPrescription(d, c), 75000, 'Text recognition');
+  }catch(e){ console.warn('OCR', e); O=null; }
+  if(!isCurrent(c)) throw new Error('__stale__');
+  d._ocr = !!(O && O.lines.length);
+  // 2. second AI reading — of the enlarged prescription block only, anchored by the OCR text
+  let B=[];
   try{
     status('Double-checking the prescription against the paper…');
-    const raw = await gemini(imgs.concat([{text:rxPrompt(imgs.filter(p=>p.inlineData).length)}]), SYS_RX, 12000, false, c, {quality:true, think:3000});
-    if(!isCurrent(c)) return;
+    let req;
+    if(O && O.blockB64){
+      req = [{text:'=== ENLARGED PRESCRIPTION BLOCK (page '+O.page+') ==='},{inlineData:{mimeType:'image/jpeg',data:O.blockB64}},
+             {text: rxPrompt(1, O.lines.map(l=>l.form+'. '+l.brand+(l.strength?' '+l.strength:'')+(l.rest?'  '+l.rest:'')))}];
+    } else {
+      const imgs = parts.filter(p=>p.inlineData || /^=== PAGE/.test(p.text||''));
+      req = imgs.concat([{text:rxPrompt(imgs.filter(p=>p.inlineData).length)}]);
+    }
+    const raw = await gemini(req, SYS_RX, 12000, false, c, {quality:true, think:3000});
+    if(!isCurrent(c)) throw new Error('__stale__');
     const o = parseJSON(raw);
-    const meds = arr(o.meds||o.prescription);
-    if(meds.length){ d.prescription = reconcileRx(d.prescription, meds); d._rxChecked = true; }
-    else { d._rxChecked = false; }
-  }catch(e){
-    if(e && e.message==='__stale__') throw e;
-    d._rxChecked = false;
-  }
+    B = arr(o.meds||o.prescription);
+  }catch(e){ if(e && e.message==='__stale__') throw e; B=[]; }
+  d._rxChecked = B.length>0;
+  // 3. vote
+  if(d._ocr)            d.prescription = reconcile3(A, B, O.lines, O.text);
+  else if(B.length)     d.prescription = reconcileRx(A, B);
+  else                  d.prescription = A;
   settleGenerics(d.prescription);
-  if(!d._rxChecked) arr(d.prescription).forEach(m=>m._flags.unshift('Second check could not run — verify this line against the paper'));
+  if(!d._rxChecked && !d._ocr) arr(d.prescription).forEach(m=>m._flags.unshift('No second check could run — verify this line against the paper'));
+  status('',false);
 }
 
 /* ---- New patient / clear ---------------------------------------------------
@@ -3427,7 +3761,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     'Tick the pages, and the languages of each.',
     '🖨️ Print selected',
     async sel=>{
-      await offerRefresh();
+      if(!(await offerRefresh())) return;
       await ensureSelection(sel);
       const ids = stageSelection(sel);
       if(!ids.length){ toast('Nothing to print yet.',4000); return; }
@@ -3444,7 +3778,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   $('pdfBtn').onclick = ()=> pickTicks('⬇️ Which pages in the PDF?','Tick the pages and languages. They go into one PDF, in this order.','⬇️ Build PDF', async sel=>{
     try{
-      await offerRefresh();
+      if(!(await offerRefresh())) return;
       status('Building PDF…');
       const b = await buildBlob({sel});
       const u=URL.createObjectURL(b), a=document.createElement('a');
@@ -3459,7 +3793,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
 
   $('docBtn').onclick = ()=> pickTicks('📝 Which pages in the Word file?','Opens in Word / Google Docs / WPS — fully editable, keeps the colours.','📝 Build Word file', async sel=>{
-    await offerRefresh();
+    if(!(await offerRefresh())) return;
     await ensureSelection(sel);
     const ids = stageSelection(sel);
     const n=(DATA&&DATA.patient&&DATA.patient.name||'Patient').replace(/[^A-Za-z0-9 ]/g,'').trim().replace(/\s+/g,'_')||'Patient';
