@@ -575,7 +575,7 @@ table.rx tr.rxchkrow td{padding:0 6px 8px;border-top:0;background:#fafafa}
       <p>Photograph an old summary → get a clean, coded, patient-ready one</p>
     </div>
     <div class="spacer"></div>
-    <span class="ver">v2026-10-19</span>
+    <span class="ver">v2026-10-26</span>
   </div>
 </header>
 
@@ -828,10 +828,15 @@ function toast(html, ms){
   const t=$('toast'); t.innerHTML=html; t.classList.add('on');
   clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('on'), ms||6000);
 }
+/* status line with a running clock while a summary is being generated, so a slow
+   answer from Google is visibly "still working", not "stuck" */
+let GEN_T0=0, _stBase='';
 function status(txt, on){
-  const b=$('statusBar'); $('statusTxt').textContent=txt;
+  const b=$('statusBar'); _stBase=txt||'';
+  $('statusTxt').textContent = _stBase + (GEN_T0 && _stBase ? '  ·  '+Math.round((Date.now()-GEN_T0)/1000)+' s' : '');
   b.classList.toggle('on', on!==false);
 }
+setInterval(()=>{ if(GEN_T0 && _stBase){ const el=$('statusTxt'); if(el) el.textContent=_stBase+'  ·  '+Math.round((Date.now()-GEN_T0)/1000)+' s'; } }, 1000);
 function showErr(html){
   const e=$('errBox'); e.innerHTML=html; e.classList.add('on');
   status('',false);
@@ -908,6 +913,7 @@ async function compress(file, maxDim, q){
 async function addFiles(list){
   const incoming = list ? Array.from(list) : [];
   if(!incoming.length){ caplog('No file came back from the camera — please try again.'); return; }
+  try{ setTimeout(()=>{ ocrWorker().catch(()=>{}); }, 300); }catch(e){}   // start loading text recognition early
   // Pages added after a summary was generated almost always belong to the NEXT
   // patient. Mixing them with the last patient's photos is how prescriptions
   // from one patient used to bleed into another — so ask.
@@ -1624,6 +1630,7 @@ function rxCheckNote(m){
   const f = arr(m._flags);
   const paper = m._img
     ? '<div class="rxphoto"><div class="cap">📷 Photo of this line'+(m.page?' (page '+esc(m.page)+')':'')+(m._ocr?' <span class="okv">'+[m._nameOk?'✓ name':'',m._strOk?'✓ strength':'',m._doseOk?'✓ dose':''].filter(Boolean).join(' ')+'</span>'+(m._doseOk?'':' <span class="nov">dose not machine-checked — compare with the photo</span>'):'')+'</div><img alt="photo of the prescription line" src="'+m._img+'"></div>'
+    : m._unchecked ? '<div class="rxpaper">🔎 The printed-text check could not read this line — compare it with the paper.</div>'
     : has(m.asWritten) ? '<div class="rxpaper">🤖 AI reading of the paper'+(m.page?' (p.'+esc(m.page)+')':'')+': <b>'+esc(m.asWritten)+'</b> <i>— no photo of this line was found; check the paper</i></div>' : '';
   const warn = f.length ? '<div class="rxflag'+(m._suspect?' bad':'')+(m._doseConflict?' dosechk':'')+'" data-dose="'+esc(m._doseConflict||'')+'">'+f.map(x=>'⚠ '+esc(x)).join('<br>')+'</div>' : '';
   return (paper||warn) ? '<div class="rxchk noprint" contenteditable="false">'+paper+warn+'</div>' : '';
@@ -3276,76 +3283,89 @@ function bestMatch(name, list, used){ let bi=-1, bs=0; list.forEach((m,i)=>{ if(
   if(bi<0) return -1; const x=nk(name), y=nk(list[bi].brand||list[bi].generic);
   return (bs>=0.75 || (Math.max(x.length,y.length)<=4 && lev(x,y)<=1)) ? bi : -1; }
 const sameStr=(a,b)=>nk(a)===nk(b);
-/* A = first AI reading, B = second AI reading (or []), O = OCR lines (or []) */
+/* A = first AI reading, B = second AI reading, O = OCR lines (in printed order).
+   OCR can CONFIRM a medicine, and can CONTRADICT one only when it clearly read a
+   different name in the same place. A line OCR simply failed to read proves nothing. */
 function reconcile3(A, B, O, ocrText){
   A=arr(A).filter(m=>has(m.brand)||has(m.generic)); B=arr(B).filter(m=>has(m.brand)); O=arr(O);
-  const uA=new Set(), uB=new Set(), out=[];
-  const pick3=(o,a,b,label,oTrusted)=>{  // majority of up to three values
-    const vals=[o,a,b].map(v=>has(v)?String(v).trim():'');
-    if(oTrusted && vals[0] && (sameStr(vals[0],vals[1])||sameStr(vals[0],vals[2]))) return {v:vals[0], ok:true};
-    if(vals[1] && sameStr(vals[1],vals[2])) return {v:vals[1], ok:!vals[0]||!oTrusted||sameStr(vals[0],vals[1]), alt:oTrusted&&vals[0]&&!sameStr(vals[0],vals[1])?vals[0]:''};
-    return {v:vals[2]||vals[1]||vals[0], ok:false};
-  };
-  O.forEach(o=>{
-    const ia=bestMatch(o.brand,A,uA), ib=bestMatch(o.brand,B,uB);
-    if(ia>=0) uA.add(ia); if(ib>=0) uB.add(ib);
-    const a=ia>=0?A[ia]:{}, b=ib>=0?B[ib]:{};
-    const flags=[]; const trustName = o.brandConf>=80;
-    // BRAND — the printed letters win when OCR is confident; never an AI "correction"
+  // 1. pair the two AI readings, in the order of the second (or first) reading
+  const base = B.length ? B : A, other = B.length ? A : [];
+  const usedO = new Set(), rows = [];
+  base.forEach(m=>{ const j=bestMatch(m.brand||m.generic, other, usedO); if(j>=0) usedO.add(j);
+    rows.push(B.length ? {b:m, a:j>=0?other[j]:null} : {a:m, b:null}); });
+  other.forEach((m,i)=>{ if(usedO.has(i)) return;                 // in the first reading only — keep its place
+    const prev = i>0 ? rows.findIndex(r=>r.a===other[i-1]) : -1;
+    rows.splice(prev+1, 0, {a:m, b:null}); });
+  // 2. attach OCR lines by name
+  const nameOf = r => (r.b&&r.b.brand)||(r.a&&(r.a.brand||r.a.generic))||'';
+  O.forEach((o,oi)=>{
+    let best=-1, bs=0;
+    rows.forEach((r,ri)=>{ if(r.o) return; const s=nameSim(o.brand, nameOf(r)); if(s>bs){ bs=s; best=ri; } });
+    const x=nk(o.brand), y=best>=0?nk(nameOf(rows[best])):'';
+    const okMatch = best>=0 && (bs>=0.75 || (bs>=0.6 && o.brandConf<80) || (Math.max(x.length,y.length)<=4 && lev(x,y)<=1));
+    if(okMatch){ rows[best].o=o; rows[best].oi=oi; return; }
+    if(o.brandConf<80) return;                                       // unsure OCR text never becomes a medicine
+    // a confident printed line the AI did not report: insert it after the row holding the previous OCR line
+    let at=0; for(let k=rows.length-1;k>=0;k--) if(rows[k].o && rows[k].oi<oi){ at=k+1; break; }
+    rows.splice(at, 0, {o, oi, ocrOnly:true});
+  });
+  // 3. decide each field
+  const out=[];
+  rows.forEach((r,ri)=>{
+    const a=r.a||{}, b=r.b||{}, o=r.o, flags=[];
+    if(!o){
+      // contradicted only if a confident OCR-only line sits in the same gap between confirmed lines
+      const anchor = x => x.o && !x.ocrOnly;        // a line both the AI and the printed text agree exists
+      let lo=ri-1; while(lo>=0 && !anchor(rows[lo])) lo--;
+      let hi=ri+1; while(hi<rows.length && !anchor(rows[hi])) hi++;
+      const gap = rows.slice(lo+1, hi).filter(x=>x.ocrOnly);
+      const both = !!(r.a && r.b);
+      let suspect=false;
+      if(gap.length && lo>=0 && hi<rows.length){
+        suspect=true;
+        flags.push('⛔ The printed line in this place reads "'+gap.map(g=>g.o.brand).join('" / "')+'", not "'+nameOf(r)+'" — probably a misreading or a merge of two lines. Delete unless it is on the paper.');
+      } else if(!both){
+        flags.push('Only one AI reading found this line and the printed-text check could not read it — compare with the paper.');
+      }
+      out.push(Object.assign({}, a, b, { brand: b.brand||a.brand, generic: b.generic||'', schedule: sched(b.schedule||a.schedule),
+        strength: cleanStrength(b.strength||a.strength), asWritten: b.line||a.asWritten||'', _flags:flags, _suspect:suspect, _unchecked:true }));
+      return;
+    }
+    const trustName = o.brandConf>=80;
     let brand;
     if(trustName){ brand=o.brand;
-      const aiNames=[a.brand,b.brand].filter(has);
-      if(aiNames.length && !aiNames.some(n=>sameStr(n,o.brand))) flags.push('Name: AI read "'+[...new Set(aiNames)].join('" / "')+'" — printed "'+o.brand+'" used.');
+      const ai=[a.brand,b.brand].filter(has);
+      if(ai.length && !ai.some(n=>sameStr(n,o.brand))) flags.push('Name: AI read "'+[...new Set(ai)].join('" / "')+'" — printed "'+o.brand+'" used.');
+      if(r.ocrOnly) flags.push('Found only in the printed text (the AI missed this line) — check the photo.');
     } else {
       brand = b.brand || a.brand || o.brand;
       if(has(a.brand)&&has(b.brand)&&!sameStr(a.brand,b.brand)) flags.push('Name read two ways: "'+a.brand+'" / "'+b.brand+'" — check the photo.');
-      else if(!has(a.brand)&&!has(b.brand)) flags.push('Only the printed-text reader found this line — check the photo.');
     }
-    // STRENGTH
     const sO=o.strength||'', sA=cleanStrength(a.strength), sB=cleanStrength(b.strength);
     let strength='', strengthOk=false;
     if(sO && (sameStr(sO,sA)||sameStr(sO,sB))){ strength=sO; strengthOk=true; }
-    else if(sO && o.strengthConf>=80){ strength=sO; strengthOk=true; if(sA||sB) flags.push('The AI read the strength as '+[sA,sB].filter(has).join(' / ')+'; the printed text reads '+sO+' — printed value used. Check the photo.'); }
+    else if(sO && o.strengthConf>=80){ strength=sO; strengthOk=true; if(sA||sB) flags.push('Strength: AI read '+[sA,sB].filter(has).join(' / ')+'; printed '+sO+' used. Check the photo.'); }
     else if(sA && sameStr(sA,sB)){ strength=sA; if(sO) flags.push('Printed strength looks like '+sO+' — check the photo.'); }
-    else { strength = sO || sB || sA; const all=[sO,sA,sB].filter(has); if(new Set(all.map(nk)).size>1) flags.push('Strength read differently ('+all.join(' / ')+') — check the photo.'); else if(sO && !sA && !sB) flags.push('Strength from the printed text only — check the photo.'); }
-    // DOSE — OCR digits are a check, two agreeing AI readings are not overruled by them
+    else { strength = sB || sA || sO; const all=[sO,sA,sB].filter(has); if(new Set(all.map(nk)).size>1) flags.push('Strength read differently ('+all.join(' / ')+') — check the photo.'); else if(sO && !sA && !sB) flags.push('Strength from the printed text only — check the photo.'); }
     const sa=sched(a.schedule), sb=sched(b.schedule), so=o.dose||'';
     const free = !o.dose && o.rest && /[a-z]{3,}/i.test(o.rest) ? o.rest.replace(/[^A-Za-z0-9)]+$/,'') : '';
-    // DOSE — the printed-digit check confirms; it never overrules an AI reading (it can misread a tilted photo)
     let dose, doseConflict='';
     if(so && (so===sa || so===sb)) dose=so;
     else if(sa || sb){
       dose = (sa && sb && sa!==sb) ? sb : (sb||sa);
-      if(sa && sb && sa!==sb) { flags.push('Dose read two ways by the AI: '+sa+' / '+sb+' — '+dose+' used. Check the photo.'); doseConflict=sa+' / '+sb; }
-      if(so && !/[a-z]/i.test(dose)) { flags.push('Dose: printed digits look like '+so+', not '+dose+' — check the photo.'); doseConflict = doseConflict || (dose+' vs printed '+so); }
+      if(sa && sb && sa!==sb){ flags.push('Dose read two ways by the AI: '+sa+' / '+sb+' — '+dose+' used. Check the photo.'); doseConflict=sa+' / '+sb; }
+      if(so && !/[a-z]/i.test(dose)){ flags.push('Dose: printed digits look like '+so+', not '+dose+' — check the photo.'); doseConflict = doseConflict || (dose+' vs printed '+so); }
     }
-    else if(free){ dose=free; }                                      // e.g. "Once a week for 4 weeks", as printed
+    else if(free) dose=free;
     else if(so){ dose=so; flags.push('Dose from the printed digits only — check the photo.'); doseConflict='printed digits only'; }
     else { dose=''; flags.push('Dose could not be read — fill it in from the paper.'); doseConflict='not read'; }
     out.push(Object.assign({}, a, b, {
-      brand, form: (b.form||a.form||o.form||'Tab').replace(/\.$/,''), strength, schedule: dose,
-      timing: b.timing||a.timing||'', duration: b.duration||a.duration||'',
-      generic: b.generic||a.generic||'', asWritten: b.line||a.asWritten||'', page:o.page,
+      brand, form:(b.form||a.form||o.form||'Tab').replace(/\.$/,''), strength, schedule:dose,
+      timing:b.timing||a.timing||'', duration:b.duration||a.duration||'',
+      generic:b.generic||a.generic||'', asWritten:b.line||a.asWritten||'', page:o.page,
       _img:o.snap, _flags:flags, _ocr:true, _doseConflict:doseConflict,
       _nameOk: trustName && (sameStr(o.brand,a.brand)||sameStr(o.brand,b.brand)), _strOk: strengthOk, _doseOk: !!so && so===dose
     }));
-  });
-  // medicines the AI produced that the printed text does not contain
-  const strongO = O.length>=2;
-  // is this name anywhere in the printed letters at all (even on a line the parser skipped)?
-  const words = String(ocrText||'').split(/[^A-Za-z0-9]+/).filter(w=>w.length>=3);
-  const inPrint = name => { const first=String(name||'').split(/\s+/)[0]; return words.some(w=>nameSim(w,first)>=0.8); };
-  B.forEach((b,i)=>{ if(uB.has(i)) return; const ia=bestMatch(b.brand,A,uA); const a=ia>=0?A[ia]:null; if(ia>=0) uA.add(ia);
-    const both=!!a && inPrint(b.brand);
-    out.push(Object.assign({}, a||{}, b, {brand:b.brand, schedule:sched(b.schedule||(a&&a.schedule)), asWritten:b.line||'', generic:b.generic||'',
-      _flags:[ strongO ? (both ? 'Both AI readings list this and the name is in the printed text, but its line could not be cut out — check the paper.'
-                              : '⛔ "'+b.brand+'" is NOT in the printed text'+(a?'':' and only one AI reading saw it')+' — probably invented or a merge of two lines. Delete unless it is on the paper.')
-                       : (both?'':'Only one AI reading found this — check against the paper.') ].filter(Boolean),
-      _suspect: strongO && !both }));
-  });
-  A.forEach((a,i)=>{ if(uA.has(i)) return;
-    out.push(Object.assign({}, a, {_flags:[ strongO ? '⛔ NOT in the printed text and not in the second reading — probably invented. Delete unless it is on the paper.'
-                                                   : '⛔ Not found in the second reading — probably not prescribed. Delete unless it is on the paper.'], _suspect:true}));
   });
   return out;
 }
@@ -3485,6 +3505,7 @@ async function generate(){
   files = keep; renderGallery();
   const c = CASE;
   $('goBtn').disabled=true;
+  GEN_T0 = Date.now();
   try{
     status('Reading '+files.length+' page'+(files.length>1?'s':'')+' — extracting every value…');
     const parts=[];
@@ -3522,7 +3543,7 @@ async function generate(){
     console.error(e);
     if(isCurrent(c)) showErr('<b>⚠️ '+ ((e&&e.message)||'Something went wrong') +'</b>');
   }finally{
-    if(isCurrent(c)){ $('goBtn').disabled=files.length===0; status('',false); }
+    if(isCurrent(c)){ GEN_T0=0; $('goBtn').disabled=files.length===0; status('',false); }
   }
 }
 
