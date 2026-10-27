@@ -575,7 +575,7 @@ table.rx tr.rxchkrow td{padding:0 6px 8px;border-top:0;background:#fafafa}
       <p>Photograph an old summary → get a clean, coded, patient-ready one</p>
     </div>
     <div class="spacer"></div>
-    <span class="ver">v2026-10-26</span>
+    <span class="ver">v2026-10-27b</span>
   </div>
 </header>
 
@@ -686,6 +686,25 @@ table.rx tr.rxchkrow td{padding:0 6px 8px;border-top:0;background:#fafafa}
 </div>
 
 <!-- ===== MODALS ===== -->
+<div class="modal" id="rsModal">
+  <div class="box">
+    <h3>📷 <span id="rsCount">Pages</span> found from <span id="rsWhen"></span></h3>
+    <p>These were photographed earlier — perhaps before the phone closed the browser. Are they the patient you are working on now?</p>
+    <div id="rsThumbs" style="margin:-4px 0 12px"></div>
+    <button class="btn btn-primary" id="rsKeep" type="button">✅ Yes — continue with these pages</button>
+    <button class="btn btn-soft" id="rsDrop" type="button">🗑 No — discard them, new patient</button>
+  </div>
+</div>
+
+<div class="modal" id="npModal">
+  <div class="box">
+    <h3>📷 <span id="npCount">New pages</span> — which patient?</h3>
+    <p>A summary for the previous patient is still open.</p>
+    <button class="btn btn-primary" id="npNew" type="button">🆕 New patient — clear the previous one</button>
+    <button class="btn btn-soft" id="npSame" type="button">➕ Same patient — add these pages</button>
+  </div>
+</div>
+
 <div class="modal" id="tapModal">
   <div class="box">
     <h3>✏️ Correct this text</h3>
@@ -866,7 +885,31 @@ function mimeOf(f){
 
 /* Decode with createImageBitmap first (handles more phone formats, and decodes
    off the main thread), falling back to an <img>. */
-async function decode(file){
+/* Read a JPEG's pixel size from its header (first 128 KB) without decoding it */
+async function jpegSize(file){
+  try{
+    const b=new Uint8Array(await file.slice(0,131072).arrayBuffer());
+    if(b[0]!==0xFF||b[1]!==0xD8) return null;
+    let i=2;
+    while(i<b.length-9){
+      if(b[i]!==0xFF){ i++; continue; }
+      const m=b[i+1];
+      if(m>=0xC0 && m<=0xCF && m!==0xC4 && m!==0xC8 && m!==0xCC) return {h:(b[i+5]<<8)|b[i+6], w:(b[i+7]<<8)|b[i+8]};
+      i += 2 + ((b[i+2]<<8)|b[i+3]);
+    }
+  }catch(e){}
+  return null;
+}
+/* Decode straight to the size we need. A 12–50 megapixel camera photo decoded at
+   full size takes 50–200 MB on a phone — enough for Android to close the tab. */
+async function decode(file, maxDim){
+  if(window.createImageBitmap && maxDim){
+    const sz = await jpegSize(file);
+    if(sz && Math.max(sz.w,sz.h)>maxDim){
+      const opt = sz.w>=sz.h ? {resizeWidth:maxDim, resizeQuality:'high'} : {resizeHeight:maxDim, resizeQuality:'high'};
+      try{ return await createImageBitmap(file, opt); }catch(e){ /* older browser: fall through */ }
+    }
+  }
   if(window.createImageBitmap){
     try{ return await createImageBitmap(file); }catch(e){ /* fall through */ }
   }
@@ -881,27 +924,39 @@ async function decode(file){
 /* Re-encode to JPEG. If the phone hands us a format this browser cannot decode
    (an iPhone HEIC opened on Android, say) we keep the original bytes and carry
    its REAL mime type through to the AI, which reads HEIC natively. */
+/* a ~10 KB preview for the page strip — the gallery never decodes the full page */
+function makeThumb(srcCanvas){
+  try{ const t=document.createElement('canvas'), sc=180/Math.max(srcCanvas.width,srcCanvas.height);
+    t.width=Math.max(1,Math.round(srcCanvas.width*sc)); t.height=Math.max(1,Math.round(srcCanvas.height*sc));
+    t.getContext('2d').drawImage(srcCanvas,0,0,t.width,t.height);
+    const u=t.toDataURL('image/jpeg',0.6); t.width=t.height=1; return u; }catch(e){ return ''; }
+}
+async function thumbOf(file){
+  try{ const bm=await decode(file, 360); const c=document.createElement('canvas'); c.width=bm.width||bm.naturalWidth; c.height=bm.height||bm.naturalHeight;
+    c.getContext('2d').drawImage(bm,0,0); if(bm.close) bm.close(); const u=makeThumb(c); c.width=c.height=1; return u; }catch(e){ return ''; }
+}
 async function compress(file, maxDim, q){
   maxDim=maxDim||2200; q=q||0.92;
   if(file._c) return file;
   // already a modest JPEG? send it as it is — re-encoding only costs time and size
   if((file.type==='image/jpeg'||file.type==='image/jpg') && file.size<1400000){
-    file._c=true; file._mime='image/jpeg';
+    file._c=true; file._mime='image/jpeg'; file._thumb = await thumbOf(file);
     return file;
   }
   try{
-    const src = await decode(file);
+    const src = await decode(file, maxDim);
     let w=src.width||src.naturalWidth, h=src.height||src.naturalHeight;
     if(!w||!h) throw new Error('image had no dimensions');
     if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
     const c=document.createElement('canvas'); c.width=w; c.height=h;
     c.getContext('2d',{alpha:false}).drawImage(src,0,0,w,h);
     if(src.close) try{ src.close(); }catch(e){}
+    const thumb = makeThumb(c);
     const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',q));
     c.width=1; c.height=1;
     if(!blob || !blob.size) throw new Error('canvas produced no image');
     const out=new File([blob],(file.name||'page').replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'});
-    out._c=true; out._mime='image/jpeg'; out._src=file;
+    out._c=true; out._mime='image/jpeg'; out._thumb=thumb;   // the original camera file is NOT kept — it is released
     return out;
   }catch(e){
     caplog('· kept original ('+(e.message||e)+')');
@@ -910,15 +965,60 @@ async function compress(file, maxDim, q){
   }
 }
 
+/* Asked inside the page: a browser pop-up straight after the camera returns can be
+   suppressed on some phones, which would silently mix two patients' pages. */
+function askNewPatient(n){
+  return new Promise(res=>{
+    const m=$('npModal'); $('npCount').textContent = n+' new page'+(n>1?'s':'');
+    m.classList.add('on');
+    $('npNew').onclick =()=>{ m.classList.remove('on'); res(true); };
+    $('npSame').onclick=()=>{ m.classList.remove('on'); res(false); };
+  });
+}
+/* ---- Page store -----------------------------------------------------------
+   Android often closes a browser tab while the camera app is open. Every page is
+   saved on this phone as soon as it is captured, so after such a reload the pages
+   come back instead of being lost. Pages are deleted on "Clear all", when a new
+   patient is started, and automatically after 12 hours. Nothing leaves the phone. */
+const PG_DB='dsai_pages', PG_TTL=12*3600*1000;
+function pgDb(){ return new Promise((res,rej)=>{ try{ const r=indexedDB.open(PG_DB,1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('p',{keyPath:'id'});
+  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){ rej(e); } }); }
+async function pgTx(mode, fn){ try{ const db=await pgDb(); return await new Promise((res,rej)=>{ const t=db.transaction('p',mode), st=t.objectStore('p'); const out=fn(st); t.oncomplete=()=>{ db.close(); res(out&&out.result!==undefined?out.result:out); }; t.onerror=()=>{ db.close(); rej(t.error); }; }); }catch(e){ return null; } }
+let _pgSeq=0;
+async function pagesSave(list){ for(const f of list){ if(!f._pid) f._pid=Date.now()+'_'+(_pgSeq++);
+  const rec={id:f._pid, ts:Date.now(), name:f.name||'page.jpg', type:f._mime||f.type||'image/jpeg', thumb:f._thumb||'', blob:f};
+  await pgTx('readwrite', st=>st.put(rec)); } }
+async function pagesDel(f){ if(f && f._pid) await pgTx('readwrite', st=>st.delete(f._pid)); }
+async function pagesClear(){ await pgTx('readwrite', st=>st.clear()); }
+async function pagesRestore(){
+  const all = await pgTx('readonly', st=>st.getAll());
+  if(!Array.isArray(all) || !all.length) return 0;
+  const fresh = all.filter(r=>Date.now()-r.ts < PG_TTL).sort((a,b)=>a.id<b.id?-1:1);
+  for(const r of all) if(Date.now()-r.ts >= PG_TTL) await pgTx('readwrite', st=>st.delete(r.id));
+  const back = fresh.map(r=>{ const f=new File([r.blob], r.name, {type:r.type}); f._c=true; f._mime=r.type; f._thumb=r.thumb; f._pid=r.id; return f; });
+  if(!back.length) return 0;
+  // never silently carry pages over: they may belong to the previous patient
+  const when = new Date(Math.max(...fresh.map(r=>r.ts)));
+  const keep = await new Promise(res=>{
+    $('rsCount').textContent = back.length+' page'+(back.length>1?'s':'');
+    $('rsWhen').textContent = when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + (when.toDateString()!==new Date().toDateString()?' on '+when.toLocaleDateString():'');
+    $('rsThumbs').innerHTML = back.slice(0,6).map(f=>f._thumb?'<img src="'+f._thumb+'" alt="" style="height:64px;border-radius:6px;border:1px solid #cbd5e1;margin:2px">':'').join('');
+    $('rsModal').classList.add('on');
+    $('rsKeep').onclick=()=>{ $('rsModal').classList.remove('on'); res(true); };
+    $('rsDrop').onclick=()=>{ $('rsModal').classList.remove('on'); res(false); };
+  });
+  if(!keep){ await pagesClear(); return 0; }
+  files = back; renderGallery(); return back.length;
+}
 async function addFiles(list){
   const incoming = list ? Array.from(list) : [];
   if(!incoming.length){ caplog('No file came back from the camera — please try again.'); return; }
-  try{ setTimeout(()=>{ ocrWorker().catch(()=>{}); }, 300); }catch(e){}   // start loading text recognition early
   // Pages added after a summary was generated almost always belong to the NEXT
   // patient. Mixing them with the last patient's photos is how prescriptions
   // from one patient used to bleed into another — so ask.
   if(DATA && !addFiles._sameCase){
-    const fresh = confirm('A summary for the previous patient is still open.\n\nOK = these pages are a NEW patient (the previous patient is cleared)\nCancel = add these pages to the SAME patient');
+    const fresh = await askNewPatient(incoming.length);
     if(fresh) resetCase(true);
     else addFiles._sameCase = true;
   }
@@ -958,6 +1058,7 @@ async function addFiles(list){
 
   files = files.concat(out);
   renderGallery();
+  pagesSave(out);                    // safe on the phone even if the tab is closed by the camera
   status('', false);
   if(problems.length) showErr('<b>⚠️ '+problems.length+' page'+(problems.length>1?'s':'')+' could not be added</b><br>'+problems.map(esc).join('<br>'));
   if(!out.length && !problems.length) showErr('<b>⚠️ The photo did not come through.</b><br>Try <b>Choose Files / PDF</b> and pick the picture from your gallery instead.');
@@ -968,15 +1069,15 @@ function renderGallery(){
   files.forEach((f,i)=>{
     const d=document.createElement('div'); d.className='thumb';
     const im=document.createElement('img');
-    const url=URL.createObjectURL(f);
-    im.src=url;
-    im.onload =()=>URL.revokeObjectURL(url);
+    const url = f._thumb ? '' : URL.createObjectURL(f);
+    im.src = f._thumb || url;
+    im.onload =()=>{ if(url) URL.revokeObjectURL(url); };
     // a format this browser cannot paint still uploads fine — show a badge, not a blank box
-    im.onerror=()=>{ URL.revokeObjectURL(url); im.remove();
+    im.onerror=()=>{ if(url) URL.revokeObjectURL(url); im.remove();
       const ph=document.createElement('div'); ph.className='noprev'; ph.innerHTML='📄<span>page '+(i+1)+'</span>';
       d.insertBefore(ph,d.firstChild); };
     const x=document.createElement('button'); x.className='x'; x.type='button'; x.textContent='×';
-    x.onclick=()=>{ files.splice(i,1); renderGallery(); };
+    x.onclick=()=>{ const gone=files.splice(i,1)[0]; pagesDel(gone); renderGallery(); };
     const n=document.createElement('div'); n.className='n'; n.textContent='Page '+(i+1);
     d.append(im,x,n); g.appendChild(d);
   });
@@ -1365,6 +1466,8 @@ ${want.patient?`
 - "avoid" and "eat": at least 8 items each. Each meal: at least 2 items. "lifestyle" and "monitoring": at least 4 each. Every "limits" field filled with a concrete amount (write normal healthy advice if a limit does not apply).
 - Respect all conditions together (heart failure → salt and fluid; CKD → potassium; diabetes → carbohydrate quality; low sodium in hospital → say so plainly).
 `:''}
+LANGUAGE CHECK: ${langCode==='en' ? 'write in simple English.' : 'every sentence must be written in '+L.label+' using the '+L.label+' script (only medicine brand names, numbers and units stay in English letters). An answer written in English will be rejected.'}
+
 OUTPUT EXACTLY THIS JSON SHAPE, every key present, no markdown:
 ${shape}
 `;
@@ -2102,8 +2205,16 @@ function fetchLang(kind, lang, bg){
     .then(raw=>{
       if(!isCurrent(c)) throw new Error('__stale__');
       const sp = splitPack(parseJSON(raw));
-      const o = kind==='pt' ? sp.pt : sp.diet;
+      let o = kind==='pt' ? sp.pt : sp.diet;
       if(kind==='pt' ? !ptOk(o) : !dietObjOk(o)) throw new Error('the answer came back empty — please try again');
+      if(!inLanguage(o, lang)){
+        // the AI answered in English — translate that answer once, then check again
+        return gemini([{text: kind==='pt' ? translatePtPrompt(o, lang) : dietPrompt(o, lang)}], kind==='pt'?SYS_TRANSLATE:SYS_DIET, 24000, bg, c)
+          .then(raw2=>{ if(!isCurrent(c)) throw new Error('__stale__');
+            const sp2=splitPack(parseJSON(raw2)); const o2 = kind==='pt' ? (ptOk(sp2.pt)?sp2.pt:parseJSON(raw2)) : (dietObjOk(sp2.diet)?sp2.diet:parseJSON(raw2));
+            if(!inLanguage(o2, lang)) throw new Error('the AI kept answering in English instead of '+(LANGS[lang]||{}).label+' — please tap the language again');
+            cache[lang] = o2; return o2; });
+      }
       cache[lang] = o; return o;
     })
     .finally(()=>{ if(inflight[key]===p) delete inflight[key]; });
@@ -3110,6 +3221,7 @@ async function ocrWorker(){
   await _ocrW.setParameters({ preserve_interword_spaces:'1', tessedit_pageseg_mode:'6' });
   return _ocrW;
 }
+async function ocrRelease(){ const w=_ocrW; _ocrW=null; try{ if(w) await w.terminate(); }catch(e){} }
 const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error(what+' took too long')), ms))]);
 
 async function fileBitmap(f){
@@ -3380,6 +3492,7 @@ async function verifyPrescription(parts, d, c){
   }catch(e){ console.warn('OCR', e); O=null; }
   if(!isCurrent(c)) throw new Error('__stale__');
   d._ocr = !!(O && O.lines.length);
+  ocrRelease();                     // free its memory before the doctor takes the next patient's photos
   // 2. second AI reading — of the enlarged prescription block only, anchored by the OCR text
   let B=[];
   try{
@@ -3418,7 +3531,7 @@ function resetCase(clearFiles){
   clearLangCaches();
   EDITED={pt:{},diet:{}}; SOURCE={pt:null,diet:null}; DOC_EDITED=false; _editToastShown=false;
   dietLang=null; addFiles._sameCase=false;
-  if(clearFiles){ files=[]; CAPLOG.length=0; renderGallery();
+  if(clearFiles){ files=[]; CAPLOG.length=0; renderGallery(); pagesClear();
     const cl=$('capLog'); if(cl) cl.innerHTML='';
     const cw=$('capWrap'); if(cw){ cw.style.display='none'; cw.removeAttribute('open'); } }
   setEdit(false);
@@ -3457,41 +3570,90 @@ function deriveComorbidities(d){
 
 /* Write the patient page and diet sheet in one language, from the summary as it
    now stands. Retries the missing half on its own; never leaves a page blank. */
-async function writePatientPages(lang, c){
-  let pt=null, diet=null, why='';
-  for(let attempt=1; attempt<=3 && (!pt||!diet); attempt++){
-    if(!isCurrent(c)) return;
-    const want = {patient:!pt, diet:!diet};
-    status((attempt>1?'Retrying — ':'')+'Writing the '+(want.patient&&want.diet?'patient page and diet sheet':want.patient?'patient page':'diet sheet')+' in '+(LANGS[lang]||LANGS.mr).label+'…');
+/* Is this text really in the chosen language? Counts letters of that language's
+   script against English letters (brand names and units stay English by design). */
+const SCRIPT_RE = { mr:/[ऀ-ॿ]/g, hi:/[ऀ-ॿ]/g, kn:/[ಀ-೿]/g };
+function strings(o, out){ out=out||[]; if(typeof o==='string') out.push(o); else if(Array.isArray(o)) o.forEach(x=>strings(x,out)); else if(o&&typeof o==='object') Object.keys(o).forEach(k=>{ if(!/^(severity|tone)$/.test(k)) strings(o[k],out); }); return out; }
+function inLanguage(o, lang){
+  if(!SCRIPT_RE[lang]) return true;
+  const t=strings(o).join(' ');
+  const native=(t.match(SCRIPT_RE[lang])||[]).length, latin=(t.match(/[A-Za-z]/g)||[]).length;
+  return native >= 40 && native/(native+latin) >= 0.45;
+}
+
+/* Write ONE page (patient page or diet sheet) in the chosen language.
+   1) ask for it directly; 2) if the answer is good but in the wrong language,
+   translate that answer; 3) retry. Returns the page or null. */
+async function writeOnePage(kind, lang, c){
+  const L=(LANGS[lang]||LANGS.mr).label, label = kind==='pt'?'patient page':'diet sheet';
+  let wrongLang=null, why='';
+  for(let attempt=1; attempt<=3; attempt++){
+    if(!isCurrent(c)) return {page:null, why:'__stale__'};
     try{
-      const raw = await gemini([{text: patientPrompt(DATA, lang, want)}], SYS_PATIENT, 24000, false, c);
+      let raw, sys;
+      if(wrongLang){
+        status('Translating the '+label+' into '+L+'…');
+        raw = await gemini([{text: kind==='pt' ? translatePtPrompt(wrongLang, lang) : dietPrompt(wrongLang, lang)}],
+                           kind==='pt' ? SYS_TRANSLATE : SYS_DIET, 24000, false, c);
+      } else {
+        status((attempt>1?'Retrying — ':'')+'Writing the '+label+' in '+L+'…');
+        raw = await gemini([{text: patientPrompt(DATA, lang, kind==='pt'?{patient:true}:{diet:true})}], SYS_PATIENT, 24000, false, c);
+      }
       const sp = splitPack(parseJSON(raw));
-      if(!pt   && ptOk(sp.pt))        pt   = sp.pt;
-      if(!diet && dietObjOk(sp.diet)) diet = sp.diet;
-      if(!pt || !diet) why = 'the answer came back incomplete';
+      const o = kind==='pt' ? sp.pt : sp.diet;
+      const good = kind==='pt' ? ptOk(o) : dietObjOk(o);
+      if(good && inLanguage(o, lang)) return {page:o};
+      if(good){ wrongLang = o; why='the AI answered in English instead of '+L; }   // translate it next time round
+      else why='the answer came back incomplete';
     }catch(e){
-      if(e && e.message==='__stale__') return;
+      if(e && e.message==='__stale__') return {page:null, why:'__stale__'};
       why = (e && e.message) || 'call failed';
-      if(/allowance|rejected/.test(why)) break;      // no point retrying an exhausted key
+      if(/allowance|rejected/.test(why)) break;      // no point retrying an exhausted key now
     }
   }
-  if(!isCurrent(c)) return;
+  return {page:null, why, english: wrongLang};
+}
+
+async function writePatientPages(lang, c, isRetry){
+  // the patient page first (it matters most), then the diet sheet — two smaller answers are
+  // far less likely to be cut off than one big one, especially in Marathi / Hindi / Kannada
+  const P = await writeOnePage('pt', lang, c);
+  if(P.why==='__stale__' || !isCurrent(c)) return;
+  const D = await writeOnePage('diet', lang, c);
+  if(D.why==='__stale__' || !isCurrent(c)) return;
   const made=[];
-  if(!pt)  { pt   = fallbackPatient(DATA); made.push('patient page'); }
-  if(!diet){ diet = fallbackDiet(DATA);    made.push('diet sheet'); }
-  clearLangCaches();
-  EDITED={pt:{},diet:{}}; SOURCE={pt:null,diet:null}; DOC_EDITED=false;
-  $('staleBar').classList.remove('on');
-  PT_CACHE[lang] = pt; DIET_CACHE[lang] = diet;
-  EXTRA = {_lang:lang, _local: made.join(' and ')};
-  $('langSel').value = lang; dietLang = lang;     // the diet sheet keeps its own language from here on
+  const pt   = P.page || P.english || fallbackPatient(DATA);
+  const diet = D.page || D.english || fallbackDiet(DATA);
+  if(!P.page) made.push('patient page'); if(!D.page) made.push('diet sheet');
+  // on an automatic retry, keep whatever already succeeded and never overwrite the doctor's edits
+  if(isRetry){
+    if(EDITED.pt[lang] || EDITED.diet[lang]) return;
+    if(P.page) PT_CACHE[lang]=P.page; if(D.page) DIET_CACHE[lang]=D.page;
+    EXTRA._local = made.join(' and ');
+  } else {
+    clearLangCaches();
+    EDITED={pt:{},diet:{}}; SOURCE={pt:null,diet:null}; DOC_EDITED=false;
+    $('staleBar').classList.remove('on');
+    PT_CACHE[lang] = pt; DIET_CACHE[lang] = diet;
+    EXTRA = {_lang:lang, _local: made.join(' and ')};
+    $('langSel').value = lang; dietLang = lang;
+  }
   renderPatient(); renderDiet(); setEdit(editMode); paintLangPills();
   status('',false);
+  const L=(LANGS[lang]||LANGS.mr).label;
   if(made.length){
-    toast('<b>⚠️ The AI could not write the '+esc(made.join(' and '))+'.</b><br>'+(why?why+'<br>':'')+
-          'A version built from the summary itself is shown (in English) so nothing is left blank. Tap the language button on that page to try the AI again.', 14000);
+    const why = P.page ? D.why : P.why;
+    const tries = (writePatientPages._retries = (isRetry ? (writePatientPages._retries||0) : 0) + 1);
+    const again = tries<=2 && !/rejected|allowance/.test(why||'');     // a used-up daily allowance will not come back in seconds
+    toast('<b>⚠️ The '+esc(made.join(' and '))+' could not be written in '+esc(L)+' yet.</b><br>'+(why?why+'<br>':'')+
+          'An English version is shown for now so nothing is blank.'+(again?' <b>The app will try again by itself in '+(tries===1?'30':'90')+' seconds.</b>':' Tap the language button on that page to try again.'), 14000);
+    if(again) setTimeout(()=>{
+      if(!isCurrent(c) || !EXTRA || !EXTRA._local) return;
+      if(EDITED.pt[lang] || EDITED.diet[lang]) return;          // the doctor has started editing — leave it alone
+      writePatientPages(lang, c, true);
+    }, tries===1 ? 30000 : 90000);
   } else {
-    toast('<b>✅ Patient page and diet sheet ready.</b>',4000);
+    toast('<b>✅ Patient page and diet sheet ready in '+esc(L)+'.</b>',4000);
     if(prefetchOn) prefetchLanguages().then(paintLangPills);
   }
 }
@@ -3506,6 +3668,7 @@ async function generate(){
   const c = CASE;
   $('goBtn').disabled=true;
   GEN_T0 = Date.now();
+  ocrWorker().catch(()=>{});      // load text recognition while the AI reads the pages (never while photographing)
   try{
     status('Reading '+files.length+' page'+(files.length>1?'s':'')+' — extracting every value…');
     const parts=[];
@@ -3571,6 +3734,8 @@ window.DSAI_LOAD = function(data, extra){
    11.  WIRING
    ============================================================ */
 document.addEventListener('DOMContentLoaded', ()=>{
+  // pages photographed before the phone closed this tab come back
+  setTimeout(()=>{ pagesRestore().then(n=>{ if(n) toast('<b>📷 '+n+' page'+(n>1?'s':'')+' restored.</b> Add more pages, or tap Generate.',6000); }).catch(()=>{}); }, 200);
   // brand mark in the header
   try{ if(SPANDAN_LOGO && SPANDAN_LOGO.indexOf('data:')===0) $('brandLogo').src = SPANDAN_LOGO; }catch(e){}
 
@@ -3613,7 +3778,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     camShots=0; $('camCount').textContent='0 pages';
     $('camModal').classList.add('on');
     const tries = [
-      {video:{facingMode:{ideal:'environment'}, width:{ideal:3840}, height:{ideal:2160}}, audio:false},
+      {video:{facingMode:{ideal:'environment'}, width:{ideal:2560}, height:{ideal:1440}}, audio:false},
       {video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}, audio:false},
       {video:true, audio:false}
     ];
